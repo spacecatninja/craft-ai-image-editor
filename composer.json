@@ -1,0 +1,60 @@
+{
+    "name": "spacecatninja/ai-image-editor",
+    "description": "Edit images in the Craft CMS control panel using natural language, powered by AI.",
+    "type": "craft-plugin",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "keywords": [
+        "craft",
+        "cms",
+        "craftcms",
+        "craft-plugin",
+        "ai",
+        "image",
+        "editor",
+        "gemini",
+        "nano banana",
+        "grok",
+        "flux",
+        "openai"
+    ],
+    "support": {
+        "docs": "https://github.com/spacecatninja/craft-ai-image-editor/blob/master/README.md",
+        "issues": "https://github.com/spacecatninja/craft-ai-image-editor/issues",
+        "source": "https://github.com/spacecatninja/craft-ai-image-editor",
+        "email": "hi@spacecat.ninja"
+    },
+    "authors": [
+        {
+            "name": "SPACECATNINJA",
+            "homepage": "https://www.spacecat.ninja"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "craftcms/cms": "^5.0.0",
+        "guzzlehttp/guzzle": "^7.2"
+    },
+    "require-dev": {
+        "craftcms/ecs": "dev-main",
+        "craftcms/phpstan": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+          "spacecatninja\\aiimageeditor\\": "src/"
+        }
+    },
+    "extra": {
+        "name": "AI Image Editor",
+        "handle": "ai-image-editor",
+        "developer": "SPACECATNINJA",
+        "developerUrl": "https://www.spacecat.ninja",
+        "documentationUrl": "https://github.com/spacecatninja/craft-ai-image-editor/blob/master/README.md",
+        "schemaVersion": "1.0.0",
+        "hasCpSettings": false,
+        "hasCpSection": false,
+        "changelogUrl": "https://raw.githubusercontent.com/spacecatninja/craft-ai-image-editor/master/CHANGELOG.md",
+        "components": {},
+        "class": "spacecatninja\\aiimageeditor\\AiImageEditor"
+    }
+}

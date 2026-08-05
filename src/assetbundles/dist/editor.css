@@ -1,0 +1,542 @@
+/**
+ * AI Image Editor plugin for Craft CMS
+ *
+ * Layered on top of Craft's native image editor chrome
+ * (.modal.fitted.imageeditor), which this modal reuses for its shell. The
+ * composer area below the image intentionally deviates from the Craft look,
+ * towards the integrated prompt bars of AI chat apps.
+ */
+
+/* Asset index toolbar button
+   ------------------------------------------------------------------------- */
+
+.ai-generate-btn {
+  margin-inline-end: 8px;
+}
+
+/* Image area
+   ------------------------------------------------------------------------- */
+
+.aiimageeditor .ai-image {
+  /* No overflow clipping, the busy overlay intentionally extends slightly
+     past the image bounds. */
+}
+
+.aiimageeditor .ai-image img.ai-current-image {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.aiimageeditor .ai-image.ai-blocked img.ai-current-image {
+  opacity: 0.3;
+}
+
+/* Generation empty state: with no draft to show, the image area collapses
+   and the composer is centered in the available space, then moves down to
+   its usual bottom position once the first draft arrives. */
+.aiimageeditor .image-container.ai-centered .image {
+  display: none;
+}
+
+.aiimageeditor .image-container.ai-centered .image-tools.ai-tools {
+  flex-grow: 1;
+  align-items: center;
+  padding-bottom: 12px;
+}
+
+.aiimageeditor .ai-empty-hint {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 17px;
+  font-weight: 500;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* The busy overlay covers the whole (letterboxed) image area, so instead of a
+   dark wash, which reads as an ugly box around the image, it blurs whatever is
+   behind it. Blurring the flat modal background is invisible, so the effect
+   only shows on the image itself. */
+.aiimageeditor .ai-image-overlay {
+  position: absolute;
+  /* Extends past the image bounds so the blur fades out beyond the image
+     edges instead of cutting off in a hard line where they align. */
+  inset: -10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+  z-index: 2;
+}
+
+.aiimageeditor .ai-image-overlay:not(.hidden) {
+  animation: ai-fade-in 0.18s ease;
+}
+
+@keyframes ai-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .aiimageeditor .ai-image-overlay {
+    background: rgba(0, 0, 0, 0.35);
+  }
+}
+
+.aiimageeditor .ai-overlay-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background-color: rgba(15, 20, 25, 0.72);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+.aiimageeditor .ai-overlay-chip .ai-overlay-label {
+  color: var(--white);
+  font-size: 13px;
+}
+
+/* Composer column
+   ------------------------------------------------------------------------- */
+
+/* More air around the image than the native editor's 14px. */
+.modal.aiimageeditor .body .image-container .image {
+  margin: 32px 32px 20px;
+}
+
+.aiimageeditor .image-tools.ai-tools {
+  display: flex;
+  justify-content: center;
+  padding: 4px 24px 32px;
+  text-align: start;
+}
+
+.aiimageeditor .ai-composer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 720px;
+}
+
+/* Messages
+   ------------------------------------------------------------------------- */
+
+.aiimageeditor .ai-message {
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.aiimageeditor .ai-message--error {
+  background-color: rgba(207, 17, 36, 0.25);
+  color: #ffb9c0;
+}
+
+.aiimageeditor .ai-message--refusal {
+  background-color: rgba(250, 177, 0, 0.18);
+  color: #ffd98a;
+}
+
+.aiimageeditor .ai-message .ai-retry {
+  margin-inline-start: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.aiimageeditor .ai-message .ai-retry:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Turn strip
+   ------------------------------------------------------------------------- */
+
+.aiimageeditor .ai-strip-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aiimageeditor .ai-strip-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+
+.aiimageeditor .ai-strip-toggle::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-inline-end: 1.5px solid currentColor;
+  border-block-end: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.aiimageeditor .ai-strip-wrap.collapsed .ai-strip-toggle::before {
+  transform: rotate(-135deg) translate(-1px, -1px);
+}
+
+.aiimageeditor .ai-strip-toggle:hover {
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.aiimageeditor .ai-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.aiimageeditor .ai-thumb {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  background-color: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.aiimageeditor .ai-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.aiimageeditor .ai-thumb.sel {
+  border-color: var(--white);
+}
+
+.aiimageeditor .ai-thumb:focus-visible {
+  border-color: var(--focus-ring-color, #78bafd);
+}
+
+.aiimageeditor .ai-revert {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.aiimageeditor .ai-revert:hover {
+  color: rgba(255, 255, 255, 0.95);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Composer card
+   ------------------------------------------------------------------------- */
+
+.aiimageeditor .ai-composer {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.15s ease;
+}
+
+.aiimageeditor .ai-composer:focus-within {
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.aiimageeditor .ai-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  /* A subtle header band: bled to the card edges, slightly darker than the
+     composer, and divided from the input by a discreet line. */
+  margin: -12px -14px 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 17px 17px 0 0;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.aiimageeditor .ai-preset {
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.aiimageeditor .ai-preset:hover {
+  color: rgba(255, 255, 255, 0.95);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.aiimageeditor .ai-prompt-input {
+  display: block;
+  width: 100%;
+  max-height: 140px;
+  padding: 5px 5px 12px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  resize: none;
+  /* Kept hidden until the max height is reached (managed from JS), so no
+     scrollbar flickers in from rounding while the textarea auto-grows. */
+  overflow-y: hidden;
+  color: var(--white);
+  font-size: 14px;
+  line-height: 1.45;
+  font-family: inherit;
+}
+
+.aiimageeditor .ai-prompt-input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.aiimageeditor .ai-prompt-input:disabled {
+  opacity: 0.5;
+}
+
+.aiimageeditor .ai-composer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aiimageeditor .ai-composer-options {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Pill controls
+   ------------------------------------------------------------------------- */
+
+.aiimageeditor .ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.aiimageeditor .ai-pill:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.aiimageeditor .ai-pill--select {
+  position: relative;
+  padding-inline-end: 0;
+}
+
+.aiimageeditor .ai-pill--select select {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 100%;
+  padding: 0 24px 0 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+.aiimageeditor .ai-pill--select select option {
+  color: #333;
+}
+
+.aiimageeditor .ai-pill--select::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: 11px;
+  top: calc(50% - 4px);
+  width: 5px;
+  height: 5px;
+  border-inline-end: 1.5px solid currentColor;
+  border-block-end: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.aiimageeditor .ai-pill-prefix {
+  opacity: 0.6;
+}
+
+.aiimageeditor .ai-precise input[type='checkbox'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.aiimageeditor .ai-precise:has(input:checked) {
+  background-color: rgba(120, 186, 253, 0.16);
+  border-color: rgba(120, 186, 253, 0.5);
+  color: #a7d1fd;
+}
+
+.aiimageeditor .ai-precise:has(input:focus-visible) {
+  border-color: var(--focus-ring-color, #78bafd);
+}
+
+/* Send button
+   ------------------------------------------------------------------------- */
+
+.aiimageeditor .ai-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--white);
+  color: #111;
+  cursor: pointer;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.aiimageeditor .ai-send:hover:not(:disabled) {
+  transform: scale(1.06);
+}
+
+.aiimageeditor .ai-send:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.aiimageeditor .ai-send svg {
+  width: 16px;
+  height: 16px;
+}
+
+.aiimageeditor .ai-send.loading svg {
+  display: none;
+}
+
+.aiimageeditor .ai-send.loading::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.25);
+  border-top-color: #111;
+  animation: ai-send-spin 0.7s linear infinite;
+}
+
+@keyframes ai-send-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Compare toggle (finalize step)
+   ------------------------------------------------------------------------- */
+
+.modal.aiimageeditor .ai-compare {
+  display: flex;
+  align-self: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+.modal.aiimageeditor .ai-compare .btn {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background-color: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+}
+
+.modal.aiimageeditor .ai-compare .btn:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.modal.aiimageeditor .ai-compare .btn.active {
+  background-color: var(--white);
+  color: #111;
+}
+
+/* Footer
+   ------------------------------------------------------------------------- */
+
+.aiimageeditor .footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-block: 12px;
+}
+
+.aiimageeditor .footer .ai-note {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--gray-300);
+  text-align: start;
+}
+
+.aiimageeditor .footer .buttons.right {
+  flex-shrink: 0;
+}
