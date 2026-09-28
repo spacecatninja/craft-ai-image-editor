@@ -28,22 +28,22 @@ return [
                 'apiKey' => App::env('GEMINI_API_KEY'),
                 //'defaultModel' => 'nano-banana-pro', // or 'nano-banana-2', or a raw Gemini image model ID
                 //'thinkingLevel' => 'high', // 'minimal' or 'high', null uses the provider default
-                //'analysisModel' => 'gemini-3.5-flash',
+                //'analysisModel' => 'gemini-3.8-flash',
                 //'outputFormat' => 'png', // 'png' or 'jpeg'
                 //'maxResolution' => '2K', // cap Gemini's tiers (it natively goes to 4K)
             ],
             'openai' => [
                 'apiKey' => App::env('OPENAI_API_KEY'),
-                //'defaultModel' => 'gpt-image-2', // or 'gpt-image-1.5', 'gpt-image-1-mini'
-                //'quality' => 'auto', // 'auto', 'low', 'medium' or 'high'
-                //'analysisModel' => 'gpt-5-mini',
+                //'defaultModel' => 'gpt-image-2.5-flare', // or 'gpt-image-2.5-sunburst', 'gpt-image-2', 'gpt-image-1.5', 'gpt-image-1-mini'
+                //'quality' => 'auto', // 'auto', 'low', 'medium', 'high', or 'xhigh'/'max' on the 2.5 models
+                //'analysisModel' => 'gpt-5.4-mini',
                 //'outputFormat' => 'png', // 'png', 'jpeg' or 'webp'
             ],
             // FLUX has no vision model, so pair it with `analysisDriver` (above)
             // to get focal point detection and descriptive filenames.
             'flux' => [
                 'apiKey' => App::env('FLUX_API_KEY'),
-                //'defaultModel' => 'flux-2-pro', // or 'flux-2-flex'
+                //'defaultModel' => 'flux-2-max', // or 'flux-2-pro', 'flux-2-flex', 'flux-2-klein-9b'
                 //'outputFormat' => 'png', // 'png', 'jpeg' or 'webp'
                 //'safetyTolerance' => 2, // 0 (strict) to 5 (permissive)
             ],
@@ -51,8 +51,9 @@ return [
             // in-provider; no `analysisDriver` needed.
             'grok' => [
                 'apiKey' => App::env('XAI_API_KEY'),
-                //'defaultModel' => 'grok-imagine-image', // or 'grok-imagine-image-quality'
-                //'analysisModel' => 'grok-4.5', // vision model for focal point / filenames
+                //'defaultModel' => 'grok-imagine-image-2.0', // or 'grok-imagine-image', 'grok-imagine-image-quality'
+                //'quality' => 'auto', // 'auto', 'low' or 'medium'; Grok Imagine 2.0 only
+                //'analysisModel' => 'grok-4.7', // vision model for focal point / filenames
             ],
         ],
 

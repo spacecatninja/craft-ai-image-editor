@@ -2,12 +2,14 @@
 
 Open any image asset and tell the editor what you want in plain words — *"make the background white"*, *"remove the coffee cup"*, *"make it look like golden hour"* — then iterate in a chat-style loop until it's right and save the result, either as a new asset or back over the original. Need an image that doesn't exist yet? Describe it and generate one from scratch. No fixed one-click filters, no round-trips to a desktop editor, no leaving Craft.
 
+**Learn more at [craft-ai-image-editor.com](https://craft-ai-image-editor.com/).**
+
 ## Highlights
 
 - **Natural-language editing, inside the control panel.** Free-form instructions in a chat-style composer — not a fixed set of one-click filters. Editors never leave Craft, and never round-trip through a desktop image editor.
 - **Generate images from scratch, too.** Beyond editing existing assets, describe an image in words and the plugin creates it as a new asset — straight from an asset index or an asset-selection modal.
 - **Iterate cheaply, finalize sharp.** Turns run as fast, low-resolution **drafts** while you refine the look; the full-resolution version is rendered only once you accept, with a side-by-side draft/final comparison so nothing changes behind your back.
-- **Bring your own AI provider.** Four drivers ship in the box — **Gemini**, **OpenAI**, **FLUX**, and **Grok** — chosen in config and switchable per session. Requests go directly from your server to the provider with your own API key, and other plugins can register more drivers.
+- **Bring your own AI provider.** Four drivers ship in the box — **Gemini**, **OpenAI**, **FLUX**, and **Grok** — chosen in your config file, a one-line change to swap. Requests go directly from your server to the provider with your own API key, and other plugins can register more drivers.
 - **Built to stay faithful.** A "Precise edits" mode, multi-turn provider chaining, and automatic aspect-ratio pinning combine to change only what you asked for and stop quality from drifting across successive edits.
 - **Feels like part of Craft.** Reuses the native image-editor interface and its two save actions — replace the original in place, or save as a new sibling asset — respects your volume permissions, auto-detects focal points, and names generated files from an AI description of what's in them.
 - **Ready for content-disclosure rules.** An optional field flags every AI-edited or -generated asset so you can meet AI-labeling regulations, and it pairs with [Imager X](https://imager-x.spacecat.ninja/) when you need a watermark burned into the pixels.
@@ -28,7 +30,7 @@ Besides editing existing assets, describe an image and the plugin creates it as 
 
 ## Choose your AI provider
 
-Pick the provider that fits your budget, quality bar, and data-handling needs — and switch per session whenever you like. Four drivers ship in the box:
+Pick the provider that fits your budget, quality bar, and data-handling needs — a one-line config change swaps between them. Four drivers ship in the box:
 
 - **Gemini** (Google) — the Nano Banana Pro and Nano Banana 2 image models, resolutions up to 4K, 10 aspect ratios, and multi-turn chaining for low-drift iteration.
 - **OpenAI** — the GPT Image models, with an input-fidelity control that maps to the "Precise edits" toggle for faithful edits.

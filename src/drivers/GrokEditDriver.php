@@ -43,13 +43,13 @@ class GrokEditDriver extends BaseEditDriver
     /**
      * @var string The default model used for edits and generation.
      */
-    public const DEFAULT_MODEL = 'grok-imagine-image';
+    public const DEFAULT_MODEL = 'grok-imagine-image-2.0';
 
     /**
      * @var string The default vision model used for analysis tasks. Can be
      * overridden with the `analysisModel` driver config.
      */
-    public const DEFAULT_ANALYSIS_MODEL = 'grok-4.5';
+    public const DEFAULT_ANALYSIS_MODEL = 'grok-4.7';
 
     /**
      * @var string[] Aspect ratios offered for selection. xAI supports a larger
@@ -61,9 +61,16 @@ class GrokEditDriver extends BaseEditDriver
      * @var array<string, string> The models offered for selection.
      */
     private const MODELS = [
+        'grok-imagine-image-2.0' => 'Grok Imagine 2.0',
         'grok-imagine-image' => 'Grok Imagine',
         'grok-imagine-image-quality' => 'Grok Imagine (Quality)',
     ];
+
+    /**
+     * @var string[] Models that accept the `quality` parameter. The older
+     * models have no such parameter and the API rejects it.
+     */
+    private const QUALITY_MODELS = ['grok-imagine-image-2.0'];
 
     // Public Methods
     // =========================================================================
@@ -152,6 +159,12 @@ class GrokEditDriver extends BaseEditDriver
             'response_format' => 'b64_json',
             'resolution' => strtolower($tier),
         ];
+
+        $quality = $this->getConfig('quality');
+
+        if ($quality !== null && \in_array($model, self::QUALITY_MODELS, true)) {
+            $payload['quality'] = (string)$quality;
+        }
 
         try {
             if ($isGeneration) {

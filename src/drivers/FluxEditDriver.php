@@ -42,7 +42,7 @@ class FluxEditDriver extends BaseEditDriver
     /**
      * @var string The default model.
      */
-    public const DEFAULT_MODEL = 'flux-2-pro';
+    public const DEFAULT_MODEL = 'flux-2-max';
 
     /**
      * @var string[] Aspect ratios offered for selection. FLUX supports a
@@ -54,8 +54,10 @@ class FluxEditDriver extends BaseEditDriver
      * @var array<string, string> The models offered for selection.
      */
     private const MODELS = [
+        'flux-2-max' => 'FLUX.2 [max]',
         'flux-2-pro' => 'FLUX.2 [pro]',
         'flux-2-flex' => 'FLUX.2 [flex]',
+        'flux-2-klein-9b' => 'FLUX.2 [klein] 9B',
     ];
 
     /**

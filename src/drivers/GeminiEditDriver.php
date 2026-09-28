@@ -38,7 +38,7 @@ class GeminiEditDriver extends BaseEditDriver
      * @var string The default model used for analysis tasks like focal point
      * detection. Can be overridden with the `analysisModel` driver config.
      */
-    public const DEFAULT_ANALYSIS_MODEL = 'gemini-3.5-flash';
+    public const DEFAULT_ANALYSIS_MODEL = 'gemini-3.8-flash';
 
     /**
      * @var array<string, float> Aspect ratios supported by the API, mapped to their numeric values.

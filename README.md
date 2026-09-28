@@ -4,6 +4,8 @@ Edit and generate image assets in the Craft CMS control panel using natural lang
 
 Open any image asset and tell the editor what you want in plain words — *"make the background white"*, *"remove the coffee cup"*, *"make it look like golden hour"* — then iterate in a chat-style loop until it's right and save the result, either as a new asset or back over the original. Need an image that doesn't exist yet? Describe it and generate one from scratch. No fixed one-click filters, no round-trips to a desktop editor, no leaving Craft.
 
+**Learn more at [craft-ai-image-editor.com](https://craft-ai-image-editor.com/).**
+
 ## Requirements
 
 - Craft CMS 5.0+
@@ -23,7 +25,7 @@ To install the plugin, either install it from the Plugin Store, or follow these 
 - **Natural-language editing, inside the control panel.** Free-form instructions in a chat-style composer — not a fixed set of one-click filters. Editors never leave Craft, and never round-trip through a desktop image editor.
 - **Generate images from scratch, too.** Beyond editing existing assets, describe an image in words and the plugin creates it as a new asset — straight from an asset index or an asset-selection modal.
 - **Iterate cheaply, finalize sharp.** Turns run as fast, low-resolution **drafts** while you refine the look; the full-resolution version is rendered only once you accept, with a side-by-side draft/final comparison so nothing changes behind your back.
-- **Bring your own AI provider.** Four drivers ship in the box — **Gemini**, **OpenAI**, **FLUX**, and **Grok** — chosen in config and switchable per session. Requests go directly from your server to the provider with your own API key, and other plugins can register more drivers.
+- **Bring your own AI provider.** Four drivers ship in the box — **Gemini**, **OpenAI**, **FLUX**, and **Grok** — chosen in your config file, a one-line change to swap. Requests go directly from your server to the provider with your own API key, and other plugins can register more drivers.
 - **Built to stay faithful.** A "Precise edits" mode, multi-turn provider chaining, and automatic aspect-ratio pinning combine to change only what you asked for and stop quality from drifting across successive edits.
 - **Feels like part of Craft.** Reuses the native image-editor interface and its two save actions — replace the original in place, or save as a new sibling asset — respects your volume permissions, auto-detects focal points, and names generated files from an AI description of what's in them.
 - **Ready for content-disclosure rules.** An optional field flags every AI-edited or -generated asset so you can meet AI-labeling regulations, and it pairs with [Imager X](https://imager-x.spacecat.ninja/) when you need a watermark burned into the pixels.
@@ -60,10 +62,10 @@ If simple edits still drift, you can change to more advanced models or adjust th
 
 Four drivers ship with the plugin, selected with the `driver` setting:
 
-- **`gemini`**: Google's Gemini image models. Model aliases `nano-banana-pro` (gemini-3-pro-image) and `nano-banana-2` (gemini-3.1-flash-image), resolution tiers up to 4K, 10 aspect ratios, and multi-turn interaction chaining for low-drift iteration.
-- **`openai`**: OpenAI's GPT Image models (`gpt-image-2`, `gpt-image-1.5`, `gpt-image-1-mini`). Output tops out around 1.5K, so a single `1K` tier is exposed and accepting a result saves directly without a regeneration step. Three aspect ratios (1:1, 3:2, 2:3). The "Precise edits" toggle maps to the API's `input_fidelity` parameter in addition to prompt instructions. Turns are stateless (no chaining).
-- **`flux`**: Black Forest Labs' FLUX.2 models (`flux-2-pro`, `flux-2-flex`), which do both editing and text-to-image generation at up to ~4MP, so `1K` and `2K` tiers are exposed. Stateless turns. The API is asynchronous (the plugin submits, polls, and downloads the result behind the usual spinner). FLUX has **no vision model**, so set `analysisDriver` to `gemini` or `openai` if you want focal point detection and descriptive filenames.
-- **`grok`**: xAI's Grok Imagine models (`grok-imagine-image`, `grok-imagine-image-quality`), doing both editing and text-to-image generation at `1K` and `2K`. Stateless turns. Grok has its own vision model (`grok-4.5`), so it handles the analysis tasks in-provider, no `analysisDriver` needed. The output format is chosen by the API, so no format tier is offered.
+- **`gemini`**: Google's Gemini image models. Model aliases `nano-banana-pro` (gemini-3-pro-image) and `nano-banana-2` (gemini-3.1-flash-image), resolution tiers up to 4K, 10 aspect ratios, and multi-turn interaction chaining for low-drift iteration. Analysis runs on `gemini-3.8-flash`.
+- **`openai`**: OpenAI's GPT Image models (`gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1-mini`). The 2.5 models reach 2K, so `1K` and `2K` tiers are exposed for them and accepting a result regenerates at the final tier; the older models top out around 1.5K, where a single `1K` tier is exposed and accepting saves directly. Flare is the fast default, Sunburst trades speed for editing precision. Three aspect ratios (1:1, 3:2, 2:3). The "Precise edits" toggle maps to the API's `input_fidelity` parameter on `gpt-image-1`/`gpt-image-1.5`, and to prompt instructions everywhere else. Turns are stateless (no chaining).
+- **`flux`**: Black Forest Labs' FLUX.2 models (`flux-2-max`, `flux-2-pro`, `flux-2-flex`, `flux-2-klein-9b`), which do both editing and text-to-image generation at up to ~4MP, so `1K` and `2K` tiers are exposed. Stateless turns. The API is asynchronous (the plugin submits, polls, and downloads the result behind the usual spinner). FLUX has **no vision model**, so set `analysisDriver` to `gemini` or `openai` if you want focal point detection and descriptive filenames.
+- **`grok`**: xAI's Grok Imagine models (`grok-imagine-image-2.0`, `grok-imagine-image`, `grok-imagine-image-quality`), doing both editing and text-to-image generation at `1K` and `2K`. Grok Imagine 2.0 also takes a `quality` setting. Stateless turns. Grok has its own vision model (`grok-4.7`), so it handles the analysis tasks in-provider, no `analysisDriver` needed. The output format is chosen by the API, so no format tier is offered.
 
 The `gemini`, `openai` and `grok` drivers also handle the analysis tasks (focal point detection, descriptive filenames) with their provider's vision models, configurable via each driver's `analysisModel` key. `flux` has no vision model, so it relies on `analysisDriver` (below).
 
@@ -135,7 +137,8 @@ Presets are one-click chips shown above the composer for common edits. Each entr
 | `apiKey` | all | `null` | The provider's API key. Reference an environment variable, never commit the key itself. |
 | `defaultModel` | all | driver's first model | The default model for new sessions, switchable per session in the editor. |
 | `analysisModel` | all | driver's default | The model used for analysis tasks. Must be a model this driver offers. |
-| `quality` | `openai` | `'auto'` | The OpenAI quality level, its main fidelity/cost knob: `auto`, `low`, `medium` or `high`. |
+| `quality` | `openai` | `'auto'` | The OpenAI quality level, its main fidelity/cost knob: `auto`, `low`, `medium` or `high`, plus `xhigh` and `max` on the 2.5 models (clamped to `high` on older ones). |
+| `quality` | `grok` | `null` | The Grok Imagine 2.0 quality level: `auto`, `low` or `medium`. Ignored by the older Grok models, which have no such parameter. |
 | `thinkingLevel` | `gemini` | `null` | Reasoning depth: `minimal` or `high`. Higher improves instruction adherence on complex edits, at the cost of latency. |
 | `outputFormat` | openai, flux | source image's format | The output image format, selectable per session in the editor (defaulting to the source image's format). This config key sets the fallback when no format is selected. Supported: `png`, `jpeg`, `webp` (Gemini: `jpeg` only, so no picker is shown; Grok: not supported, format is API-chosen). |
 | `safetyTolerance` | `flux` | `2` | Content-moderation strictness, `0` (strict) to `5` (permissive). |
@@ -160,7 +163,7 @@ Analysis (focal point detection, descriptive filenames) needs a vision-language 
     'flux' => ['apiKey' => App::env('FLUX_API_KEY')],
     'gemini' => [
         'apiKey' => App::env('GEMINI_API_KEY'),
-        'analysisModel' => 'gemini-3.5-flash',
+        'analysisModel' => 'gemini-3.8-flash',
     ],
 ],
 ```
@@ -283,4 +286,4 @@ This is commercial software. See [LICENSE.md](LICENSE.md). A license can be purc
 
 ---
 
-Brought to you by [SPACECATNINJA](https://www.spacecat.ninja)
+[craft-ai-image-editor.com](https://craft-ai-image-editor.com/) — brought to you by [SPACECATNINJA](https://www.spacecat.ninja)
