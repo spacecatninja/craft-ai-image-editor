@@ -2,7 +2,7 @@
     "name": "spacecatninja/ai-image-editor",
     "description": "Edit images in the Craft CMS control panel using natural language, powered by AI.",
     "type": "craft-plugin",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "license": "proprietary",
     "keywords": [
         "craft",

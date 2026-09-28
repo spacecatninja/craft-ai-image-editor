@@ -1,6 +1,6 @@
 # AI Image Editor Changelog
 
-## Unreleased
+## 1.1.0 - 2026-09-28
 
 ### Added
 - Added the GPT Image 2.5 models `gpt-image-2.5-flare` and `gpt-image-2.5-sunburst`, which reach 2K and support the `xhigh` and `max` quality levels
