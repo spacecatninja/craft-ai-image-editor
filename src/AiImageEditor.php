@@ -8,7 +8,7 @@
  * @copyright Copyright (c) 2026 André Elvan
  */
 
-namespace spacecatninja\aiimageeditor;
+namespace SpaceCatNinja\AiImageEditor;
 
 use Craft;
 use craft\base\Element;
@@ -23,19 +23,19 @@ use craft\events\RegisterUserPermissionsEvent;
 use craft\services\UserPermissions;
 use craft\web\View;
 
-use spacecatninja\aiimageeditor\assetbundles\EditorAsset;
-use spacecatninja\aiimageeditor\controllers\SessionsController;
-use spacecatninja\aiimageeditor\drivers\FluxEditDriver;
-use spacecatninja\aiimageeditor\drivers\GeminiEditDriver;
-use spacecatninja\aiimageeditor\drivers\GrokEditDriver;
-use spacecatninja\aiimageeditor\drivers\OpenAiEditDriver;
-use spacecatninja\aiimageeditor\elementactions\EditWithAi;
-use spacecatninja\aiimageeditor\events\RegisterEditDriversEvent;
-use spacecatninja\aiimageeditor\jobs\PurgeStaleSessions;
-use spacecatninja\aiimageeditor\models\Settings;
-use spacecatninja\aiimageeditor\services\DriversService;
-use spacecatninja\aiimageeditor\services\ServicesTrait;
-use spacecatninja\aiimageeditor\services\SessionsService;
+use SpaceCatNinja\AiImageEditor\AssetBundles\EditorAsset;
+use SpaceCatNinja\AiImageEditor\Http\Controllers\SessionsController;
+use SpaceCatNinja\AiImageEditor\Drivers\FluxEditDriver;
+use SpaceCatNinja\AiImageEditor\Drivers\GeminiEditDriver;
+use SpaceCatNinja\AiImageEditor\Drivers\GrokEditDriver;
+use SpaceCatNinja\AiImageEditor\Drivers\OpenAiEditDriver;
+use SpaceCatNinja\AiImageEditor\ElementActions\EditWithAi;
+use SpaceCatNinja\AiImageEditor\Events\RegisterEditDriversEvent;
+use SpaceCatNinja\AiImageEditor\Jobs\PurgeStaleSessions;
+use SpaceCatNinja\AiImageEditor\Settings;
+use SpaceCatNinja\AiImageEditor\Services\DriversService;
+use SpaceCatNinja\AiImageEditor\Services\ServicesTrait;
+use SpaceCatNinja\AiImageEditor\Services\SessionsService;
 
 use yii\base\Event;
 use yii\base\InvalidConfigException;

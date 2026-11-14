@@ -41,7 +41,7 @@
     },
     "autoload": {
         "psr-4": {
-          "spacecatninja\\aiimageeditor\\": "src/"
+          "SpaceCatNinja\\AiImageEditor\\": "src/"
         }
     },
     "extra": {
@@ -55,6 +55,6 @@
         "hasCpSection": false,
         "changelogUrl": "https://raw.githubusercontent.com/spacecatninja/craft-ai-image-editor/master/CHANGELOG.md",
         "components": {},
-        "class": "spacecatninja\\aiimageeditor\\AiImageEditor"
+        "class": "SpaceCatNinja\\AiImageEditor\\AiImageEditor"
     }
 }
