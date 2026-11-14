@@ -26,32 +26,34 @@ return [
         'driverConfig' => [
             'gemini' => [
                 'apiKey' => App::env('GEMINI_API_KEY'),
-                //'defaultModel' => 'nano-banana-pro', // or 'nano-banana-2', or a raw Gemini image model ID
-                //'thinkingLevel' => 'high', // 'minimal' or 'high', null uses the provider default
+                //'defaultModel' => 'nano-banana-pro', // or 'nano-banana-2.1', 'nano-banana-2', or a raw Gemini image model ID
+                //'thinkingLevel' => 'high', // 'minimal' or 'high' ('medium' too on Nano Banana 2.1), null uses the provider default
                 //'analysisModel' => 'gemini-3.8-flash',
                 //'outputFormat' => 'png', // 'png' or 'jpeg'
                 //'maxResolution' => '2K', // cap Gemini's tiers (it natively goes to 4K)
             ],
             'openai' => [
                 'apiKey' => App::env('OPENAI_API_KEY'),
-                //'defaultModel' => 'gpt-image-2.5-flare', // or 'gpt-image-2.5-sunburst', 'gpt-image-2', 'gpt-image-1.5', 'gpt-image-1-mini'
-                //'quality' => 'auto', // 'auto', 'low', 'medium', 'high', or 'xhigh'/'max' on the 2.5 models
-                //'analysisModel' => 'gpt-5.4-mini',
+                //'defaultModel' => 'gpt-image-2.6-flare', // or 'gpt-image-2.6-sunburst', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2'
+                //'quality' => 'auto', // 'auto', 'low', 'medium', 'high', or 'xhigh'/'max' on the 2.5 and 2.6 models
+                //'complexity' => null, // 'low', 'medium' or 'high', 2.6 models only; null uses 'low' for precise edits and the API default otherwise
+                //'analysisModel' => 'gpt-6.1-terra',
                 //'outputFormat' => 'png', // 'png', 'jpeg' or 'webp'
             ],
             // FLUX has no vision model, so pair it with `analysisDriver` (above)
             // to get focal point detection and descriptive filenames.
             'flux' => [
                 'apiKey' => App::env('FLUX_API_KEY'),
-                //'defaultModel' => 'flux-2-max', // or 'flux-2-pro', 'flux-2-flex', 'flux-2-klein-9b'
-                //'outputFormat' => 'png', // 'png', 'jpeg' or 'webp'
-                //'safetyTolerance' => 2, // 0 (strict) to 5 (permissive)
+                //'defaultModel' => 'flux-3-image', // or 'flux-3-image-klein', 'flux-2-max', 'flux-2-pro', 'flux-2-flex', 'flux-2-klein-9b'
+                //'outputFormat' => 'png', // 'png', 'jpeg' or 'webp' (FLUX 3 Image Klein: 'png' or 'jpeg'; FLUX 3 Image picks its own)
+                //'safetyTolerance' => 2, // 0 (strict) to 5 (permissive), or up to 7 on the FLUX 3 models if your account is approved for it
+                //'grounding' => false, // FLUX 3 Image only: let the model search the web for the prompt
             ],
             // Grok has its own vision model, so it does the analysis tasks
             // in-provider; no `analysisDriver` needed.
             'grok' => [
                 'apiKey' => App::env('XAI_API_KEY'),
-                //'defaultModel' => 'grok-imagine-image-2.0', // or 'grok-imagine-image', 'grok-imagine-image-quality'
+                //'defaultModel' => 'grok-imagine-image-2.0', // or 'grok-imagine-image'
                 //'quality' => 'auto', // 'auto', 'low' or 'medium'; Grok Imagine 2.0 only
                 //'analysisModel' => 'grok-4.7', // vision model for focal point / filenames
             ],

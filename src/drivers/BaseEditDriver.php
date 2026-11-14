@@ -10,6 +10,7 @@
 
 namespace spacecatninja\aiimageeditor\drivers;
 
+use Craft;
 use craft\base\Component;
 use craft\helpers\App;
 use craft\helpers\FileHelper;
@@ -44,6 +45,14 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      * `preserveInstructions` setting.
      */
     public const DEFAULT_PRESERVE_INSTRUCTIONS = 'Keep everything else in the image exactly the same, preserving the original style, lighting, and composition. Do not add, remove, or alter anything that was not explicitly requested.';
+
+    /**
+     * @var array<string, string> Model IDs the provider has retired, mapped to
+     * the model that replaces them. Drivers override this, and
+     * {@see replaceRetiredModel()} swaps a retired ID found in config or on a
+     * stored session for its replacement.
+     */
+    protected const RETIRED_MODELS = [];
 
     /**
      * @var string[] The known resolution tiers, lowest to highest, used to
@@ -122,7 +131,7 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
         $configured = $this->getConfig('defaultModel');
 
         if (\is_string($configured) && $configured !== '') {
-            return $configured;
+            return $this->replaceRetiredModel($configured);
         }
 
         $models = $this->getAvailableModels();
@@ -174,6 +183,35 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      * @since 1.0.0
      */
     abstract protected function analyzeImage(string $imagePath, string $prompt): ?string;
+
+    /**
+     * Returns the replacement for a model the provider has retired, logging a
+     * deprecation warning so the stale config gets noticed, or the model
+     * itself when it's still current.
+     *
+     * @param string $model
+     * @return string
+     *
+     * @author André Elvan
+     * @since 1.2.0
+     */
+    protected function replaceRetiredModel(string $model): string
+    {
+        $replacement = static::RETIRED_MODELS[$model] ?? null;
+
+        if (!\is_string($replacement)) {
+            return $model;
+        }
+
+        $handle = $this->getHandle();
+
+        Craft::$app->getDeprecator()->log(
+            "ai-image-editor.retired-model.{$handle}.{$model}",
+            "The `{$model}` model has been retired by the provider, so `{$replacement}` is used instead. If it's set as the `{$handle}` driver's `defaultModel` in `config/ai-image-editor.php`, update it there."
+        );
+
+        return $replacement;
+    }
 
     /**
      * Writes result image bytes to a uniquely named file in the target

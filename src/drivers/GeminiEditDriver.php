@@ -60,6 +60,7 @@ class GeminiEditDriver extends BaseEditDriver
      * @var array<string, string> Friendly model aliases mapped to Gemini model IDs.
      */
     private const MODEL_ALIASES = [
+        'nano-banana-2.1' => 'gemini-nano-banana-2.1',
         'nano-banana-2' => 'gemini-3.1-flash-image',
         'nano-banana-pro' => 'gemini-3-pro-image',
     ];
@@ -68,6 +69,7 @@ class GeminiEditDriver extends BaseEditDriver
      * @var array<string, string[]> Resolution tiers supported per model, lowest to highest.
      */
     private const MODEL_RESOLUTIONS = [
+        'gemini-nano-banana-2.1' => ['512', '1K', '2K', '4K'],
         'gemini-3.1-flash-lite-image' => ['1K'],
         'gemini-3.1-flash-image' => ['512', '1K', '2K', '4K'],
         'gemini-3-pro-image' => ['1K', '2K', '4K'],
@@ -81,7 +83,11 @@ class GeminiEditDriver extends BaseEditDriver
     /**
      * @var string[] Models that accept the `thinking_level` generation config option.
      */
-    private const THINKING_LEVEL_MODELS = ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image'];
+    private const THINKING_LEVEL_MODELS = [
+        'gemini-nano-banana-2.1',
+        'gemini-3.1-flash-image',
+        'gemini-3.1-flash-lite-image',
+    ];
 
     // Public Methods
     // =========================================================================
@@ -109,6 +115,7 @@ class GeminiEditDriver extends BaseEditDriver
     {
         return [
             'nano-banana-pro' => 'Nano Banana Pro',
+            'nano-banana-2.1' => 'Nano Banana 2.1',
             'nano-banana-2' => 'Nano Banana 2',
         ];
     }

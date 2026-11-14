@@ -21,13 +21,15 @@ use spacecatninja\aiimageeditor\models\EditResult;
 use yii\base\ErrorException;
 
 /**
- * Edit driver for the Black Forest Labs FLUX.2 image models, which do both
- * editing and text-to-image generation, up to ~4MP.
+ * Edit driver for the Black Forest Labs FLUX 3 Image and FLUX.2 models, which
+ * do both editing and text-to-image generation, up to ~4MP.
  *
  * FLUX has no vision model, so the analysis tasks (focal point detection,
  * descriptive filenames) return null here, pair it with the `analysisDriver`
  * setting to route those to a provider that has one. Turns are stateless, and
- * output resolution is requested as explicit pixel dimensions.
+ * output resolution is requested as explicit pixel dimensions. The FLUX 3
+ * endpoints take a different request shape than FLUX.2 (an `images` list, a
+ * wider safety range, and no unknown fields), see {@see _buildPayload()}.
  *
  * @author André Elvan
  * @since 1.0.0
@@ -42,7 +44,7 @@ class FluxEditDriver extends BaseEditDriver
     /**
      * @var string The default model.
      */
-    public const DEFAULT_MODEL = 'flux-2-max';
+    public const DEFAULT_MODEL = 'flux-3-image';
 
     /**
      * @var string[] Aspect ratios offered for selection. FLUX supports a
@@ -54,6 +56,8 @@ class FluxEditDriver extends BaseEditDriver
      * @var array<string, string> The models offered for selection.
      */
     private const MODELS = [
+        'flux-3-image' => 'FLUX 3 Image',
+        'flux-3-image-klein' => 'FLUX 3 Image Klein',
         'flux-2-max' => 'FLUX.2 [max]',
         'flux-2-pro' => 'FLUX.2 [pro]',
         'flux-2-flex' => 'FLUX.2 [flex]',
@@ -61,8 +65,47 @@ class FluxEditDriver extends BaseEditDriver
     ];
 
     /**
-     * @var array<string, int> Target pixel budget per resolution tier. FLUX.2
-     * output tops out around 4MP; dimensions are derived from these and the
+     * @var string[] The FLUX 3 models, which take reference images as an
+     * `images` list instead of FLUX.2's `input_image`.
+     */
+    private const FLUX3_MODELS = ['flux-3-image', 'flux-3-image-klein'];
+
+    /**
+     * @var string[] Models with the `grounding` option (web and image search
+     * while rendering). The API rejects it on every other model.
+     */
+    private const GROUNDING_MODELS = ['flux-3-image'];
+
+    /**
+     * @var array<string, string[]> Output formats per model, where they differ
+     * from {@see DEFAULT_OUTPUT_FORMATS}. FLUX 3 Image has no `output_format`
+     * parameter (the API picks the format and rejects the field), and FLUX 3
+     * Image Klein has no WebP.
+     */
+    private const MODEL_OUTPUT_FORMATS = [
+        'flux-3-image' => [],
+        'flux-3-image-klein' => ['png', 'jpeg'],
+    ];
+
+    /**
+     * @var string[] Output formats the FLUX.2 models support.
+     */
+    private const DEFAULT_OUTPUT_FORMATS = ['png', 'jpeg', 'webp'];
+
+    /**
+     * @var int The highest `safety_tolerance` the FLUX 3 models accept. FLUX.2
+     * tops out at {@see FLUX2_MAX_SAFETY_TOLERANCE}.
+     */
+    private const FLUX3_MAX_SAFETY_TOLERANCE = 7;
+
+    /**
+     * @var int The highest `safety_tolerance` the FLUX.2 models accept.
+     */
+    private const FLUX2_MAX_SAFETY_TOLERANCE = 5;
+
+    /**
+     * @var array<string, int> Target pixel budget per resolution tier. FLUX
+     * edits top out around 4MP; dimensions are derived from these and the
      * requested aspect ratio.
      */
     private const TIER_PIXELS = [
@@ -118,7 +161,7 @@ class FluxEditDriver extends BaseEditDriver
      */
     public function getSupportedOutputFormats(?string $model = null): array
     {
-        return ['png', 'jpeg', 'webp'];
+        return self::MODEL_OUTPUT_FORMATS[$this->_resolveModel($model)] ?? self::DEFAULT_OUTPUT_FORMATS;
     }
 
     /**
@@ -158,19 +201,7 @@ class FluxEditDriver extends BaseEditDriver
         $model = $this->_resolveModel($request->model);
         $tier = $this->_clampResolution($request->resolution);
         [$width, $height] = $this->_resolveDimensions($request, $isGeneration, $tier);
-
-        $payload = [
-            'prompt' => $this->buildPrompt($request),
-            'output_format' => $this->resolveOutputFormat($request),
-            'safety_tolerance' => min(5, max(0, (int)$this->getConfig('safetyTolerance', 2))),
-            'width' => $width,
-            'height' => $height,
-        ];
-
-        // Editing attaches the working image; generation runs on the prompt alone.
-        if (!$isGeneration) {
-            $payload['input_image'] = base64_encode(file_get_contents($request->sourceImagePath));
-        }
+        $payload = $this->_buildPayload($request, $model, $isGeneration, $width, $height);
 
         try {
             $image = $client->submitAndAwait($model, $payload);
@@ -240,9 +271,53 @@ class FluxEditDriver extends BaseEditDriver
      */
     private function _resolveModel(?string $model): string
     {
-        $model = $model ?? $this->getDefaultModel();
+        $model = $this->replaceRetiredModel($model ?? $this->getDefaultModel());
 
         return isset(self::MODELS[$model]) ? $model : self::DEFAULT_MODEL;
+    }
+
+    /**
+     * Builds the request body for one turn. Every FLUX endpoint rejects
+     * fields it doesn't know, so the optional ones are only added for the
+     * models that accept them.
+     */
+    private function _buildPayload(EditRequest $request, string $model, bool $isGeneration, int $width, int $height): array
+    {
+        $isFlux3 = \in_array($model, self::FLUX3_MODELS, true);
+        $maxSafetyTolerance = $isFlux3 ? self::FLUX3_MAX_SAFETY_TOLERANCE : self::FLUX2_MAX_SAFETY_TOLERANCE;
+
+        $payload = [
+            'prompt' => $this->buildPrompt($request),
+            'safety_tolerance' => min($maxSafetyTolerance, max(0, (int)$this->getConfig('safetyTolerance', 2))),
+            'width' => $width,
+            'height' => $height,
+        ];
+
+        $outputFormat = $this->resolveOutputFormat($request, $model);
+
+        if ($outputFormat !== null) {
+            $payload['output_format'] = $outputFormat;
+        }
+
+        // Grounding searches the web for the prompt, so it's off unless asked for.
+        if (\in_array($model, self::GROUNDING_MODELS, true)) {
+            $payload['grounding'] = (bool)$this->getConfig('grounding', false);
+        }
+
+        // Editing attaches the working image; generation runs on the prompt alone.
+        if ($isGeneration) {
+            return $payload;
+        }
+
+        $image = base64_encode(file_get_contents($request->sourceImagePath));
+
+        if ($isFlux3) {
+            $payload['images'] = [$image];
+        } else {
+            $payload['input_image'] = $image;
+        }
+
+        return $payload;
     }
 
     /**

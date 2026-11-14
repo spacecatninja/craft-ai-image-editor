@@ -26,9 +26,9 @@ use yii\base\ErrorException;
  *
  * Unlike the Gemini driver this one is stateless: OpenAI's Images API has no
  * multi-turn state, so every turn sends the current working image. Output
- * sizes are fixed per aspect ratio: the GPT Image 2.5 models reach 2K, so both
- * a `1K` and a `2K` tier are exposed for them and finalize regenerates at the
- * higher tier. The older models top out around 1.5K, where the single `1K`
+ * sizes are fixed per aspect ratio: the GPT Image 2.5 and 2.6 models reach 2K,
+ * so both a `1K` and a `2K` tier are exposed for them and finalize regenerates
+ * at the higher tier. GPT Image 2 tops out around 1.5K, where the single `1K`
  * tier makes the finalize step a plain save.
  *
  * @author André Elvan
@@ -45,12 +45,23 @@ class OpenAiEditDriver extends BaseEditDriver
      * @var string The default model used for analysis tasks like focal point
      * detection. Can be overridden with the `analysisModel` driver config.
      */
-    public const DEFAULT_ANALYSIS_MODEL = 'gpt-5.4-mini';
+    public const DEFAULT_ANALYSIS_MODEL = 'gpt-6.1-terra';
 
     /**
      * @var string The default model used for edits.
      */
-    public const DEFAULT_MODEL = 'gpt-image-2.5-flare';
+    public const DEFAULT_MODEL = 'gpt-image-2.6-flare';
+
+    /**
+     * @var array<string, string> Models OpenAI has shut down, mapped to their
+     * replacement.
+     */
+    protected const RETIRED_MODELS = [
+        'gpt-image-1' => self::DEFAULT_MODEL,
+        'gpt-image-1.5' => self::DEFAULT_MODEL,
+        'gpt-image-1.5-2025-12-16' => self::DEFAULT_MODEL,
+        'gpt-image-1-mini' => self::DEFAULT_MODEL,
+    ];
 
     /**
      * @var array<string, array<string, string>> Output sizes the API accepts,
@@ -75,31 +86,42 @@ class OpenAiEditDriver extends BaseEditDriver
      * @var array<string, string> The models offered for selection.
      */
     private const MODELS = [
+        'gpt-image-2.6-flare' => 'GPT Image 2.6 Flare',
+        'gpt-image-2.6-sunburst' => 'GPT Image 2.6 Sunburst',
         'gpt-image-2.5-flare' => 'GPT Image 2.5 Flare',
         'gpt-image-2.5-sunburst' => 'GPT Image 2.5 Sunburst',
         'gpt-image-2' => 'GPT Image 2',
-        'gpt-image-1.5' => 'GPT Image 1.5',
-        'gpt-image-1-mini' => 'GPT Image 1 Mini',
     ];
-
-    /**
-     * @var string[] Models that accept the `input_fidelity` parameter.
-     * Notably gpt-image-2 does not, despite what the docs suggest, and the 2.5
-     * models handle reference fidelity themselves.
-     */
-    private const INPUT_FIDELITY_MODELS = ['gpt-image-1', 'gpt-image-1.5'];
 
     /**
      * @var string[] Models that reach 2K and accept the `xhigh` and `max`
      * quality levels.
      */
-    private const LARGE_OUTPUT_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'];
+    private const LARGE_OUTPUT_MODELS = [
+        'gpt-image-2.6-flare',
+        'gpt-image-2.6-sunburst',
+        'gpt-image-2.5-flare',
+        'gpt-image-2.5-sunburst',
+    ];
 
     /**
-     * @var string[] Quality levels only the 2.5 models accept. They are
-     * clamped to `high` on the older ones, which the API would reject.
+     * @var string[] Quality levels only the 2.5 and 2.6 models accept. They
+     * are clamped to `high` on the older ones, which the API would reject.
      */
     private const LARGE_OUTPUT_QUALITIES = ['xhigh', 'max'];
+
+    /**
+     * @var string[] Models that accept the `complexity` parameter, which sets
+     * how much the model plans before rendering.
+     */
+    private const COMPLEXITY_MODELS = ['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'];
+
+    /**
+     * @var string The complexity used for edits with "Precise edits" on. OpenAI
+     * recommends low complexity for focused edits, since higher levels can
+     * introduce changes that weren't asked for.
+     */
+    private const PRECISE_COMPLEXITY = 'low';
 
     // Public Methods
     // =========================================================================
@@ -191,18 +213,25 @@ class OpenAiEditDriver extends BaseEditDriver
         $size = $this->_resolveSize($request, $tier);
         $prompt = $this->buildPrompt($request);
         $quality = $this->_resolveQuality($model);
+        $complexity = $this->_resolveComplexity($model, $request);
         $format = $this->resolveOutputFormat($request) ?? 'png';
 
         try {
             if ($request->sourceImagePath === '') {
-                $response = $client->createImage([
+                $payload = [
                     'model' => $model,
                     'prompt' => $prompt,
                     'size' => $size,
                     'quality' => $quality,
                     'output_format' => $format,
                     'n' => 1,
-                ]);
+                ];
+
+                if ($complexity !== null) {
+                    $payload['complexity'] = $complexity;
+                }
+
+                $response = $client->createImage($payload);
             } else {
                 $multipart = [
                     ['name' => 'model', 'contents' => $model],
@@ -218,11 +247,8 @@ class OpenAiEditDriver extends BaseEditDriver
                     ],
                 ];
 
-                if (\in_array($model, self::INPUT_FIDELITY_MODELS, true)) {
-                    $multipart[] = [
-                        'name' => 'input_fidelity',
-                        'contents' => $request->preserveContent ? 'high' : 'low',
-                    ];
+                if ($complexity !== null) {
+                    $multipart[] = ['name' => 'complexity', 'contents' => $complexity];
                 }
 
                 $response = $client->editImage($multipart);
@@ -267,6 +293,7 @@ class OpenAiEditDriver extends BaseEditDriver
             'model' => $model,
             'size' => $size,
             'quality' => $quality,
+            'complexity' => $complexity,
             'usage' => $response['usage'] ?? null,
         ], static fn($value) => $value !== null);
 
@@ -341,13 +368,13 @@ class OpenAiEditDriver extends BaseEditDriver
     }
 
     /**
-     * Resolves a configured model name to an OpenAI model ID. Unknown
-     * `gpt-image-*` names are passed through, anything else falls back to the
-     * default model.
+     * Resolves a configured model name to an OpenAI model ID. Retired models
+     * are swapped for their replacement, unknown `gpt-image-*` names are
+     * passed through, and anything else falls back to the default model.
      */
     private function _resolveModel(?string $model): string
     {
-        $model = $model ?? $this->getDefaultModel();
+        $model = $this->replaceRetiredModel($model ?? $this->getDefaultModel());
 
         if (isset(self::MODELS[$model]) || str_starts_with($model, 'gpt-image')) {
             return $model;
@@ -357,8 +384,33 @@ class OpenAiEditDriver extends BaseEditDriver
     }
 
     /**
-     * Resolves the quality level, clamping the 2.5-only levels to `high` on
-     * models that don't accept them.
+     * Resolves the `complexity` level, or null to leave it out of the request.
+     * Only the 2.6 models accept it. A configured level wins, otherwise edits
+     * with "Precise edits" on use {@see PRECISE_COMPLEXITY}, and everything
+     * else gets the API default (`high`).
+     */
+    private function _resolveComplexity(string $model, EditRequest $request): ?string
+    {
+        if (!\in_array($model, self::COMPLEXITY_MODELS, true)) {
+            return null;
+        }
+
+        $complexity = $this->getConfig('complexity');
+
+        if (\is_string($complexity) && $complexity !== '') {
+            return $complexity;
+        }
+
+        if ($request->sourceImagePath === '' || !$request->preserveContent) {
+            return null;
+        }
+
+        return self::PRECISE_COMPLEXITY;
+    }
+
+    /**
+     * Resolves the quality level, clamping the `xhigh` and `max` levels to
+     * `high` on models that don't accept them.
      */
     private function _resolveQuality(string $model): string
     {

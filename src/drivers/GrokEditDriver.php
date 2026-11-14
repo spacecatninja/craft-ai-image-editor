@@ -25,7 +25,7 @@ use yii\base\ErrorException;
  * Edit driver for xAI's Grok Imagine image models.
  *
  * A full-parity driver: xAI has both an instruction-based image edit endpoint
- * and a vision model (`grok-4.5`), so the analysis tasks (focal point
+ * and a vision model (`grok-4.7`), so the analysis tasks (focal point
  * detection, descriptive filenames) run in-provider and no `analysisDriver` is
  * needed. The API is OpenAI-compatible and stateless (no multi-turn chaining).
  * Output format is provider-chosen, so no format tier is offered.
@@ -52,6 +52,14 @@ class GrokEditDriver extends BaseEditDriver
     public const DEFAULT_ANALYSIS_MODEL = 'grok-4.7';
 
     /**
+     * @var array<string, string> Models xAI has retired, mapped to their
+     * replacement.
+     */
+    protected const RETIRED_MODELS = [
+        'grok-imagine-image-quality' => self::DEFAULT_MODEL,
+    ];
+
+    /**
      * @var string[] Aspect ratios offered for selection. xAI supports a larger
      * enum, this is a sensible discrete subset for the UI.
      */
@@ -63,7 +71,6 @@ class GrokEditDriver extends BaseEditDriver
     private const MODELS = [
         'grok-imagine-image-2.0' => 'Grok Imagine 2.0',
         'grok-imagine-image' => 'Grok Imagine',
-        'grok-imagine-image-quality' => 'Grok Imagine (Quality)',
     ];
 
     /**
@@ -304,11 +311,12 @@ class GrokEditDriver extends BaseEditDriver
     }
 
     /**
-     * Resolves the model to use, falling back to the driver's default.
+     * Resolves the model to use, swapping retired models for their
+     * replacement and falling back to the driver's default.
      */
     private function _resolveModel(?string $model): string
     {
-        $model = $model ?? $this->getDefaultModel();
+        $model = $this->replaceRetiredModel($model ?? $this->getDefaultModel());
 
         return isset(self::MODELS[$model]) ? $model : self::DEFAULT_MODEL;
     }
