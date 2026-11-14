@@ -27,7 +27,7 @@
 - The permission constants moved from `SessionsController` to `AiImageEditor`.
 
 ### Removed
-- Removed the **Generate** button from asset indexes and asset selection modals, since Craft 6 has no way for plugins to add it yet. Generation sessions can still be opened from code.
+- Removed the **Generate** button from asset indexes and asset selection modals, since Craft 6 has no way for plugins to add it yet ([craftcms/cms#20689](https://github.com/craftcms/cms/issues/20689)). Generation sessions can still be opened from code.
 - Removed the `AiImageEditor::EVENT_REGISTER_EDIT_DRIVERS` event and `RegisterEditDriversEvent`, and `DriversService::registerDriver()` and `getRegisteredDrivers()`.
 - Removed the `SessionsService::EVENT_BEFORE_EDIT`, `SessionsService::EVENT_AFTER_EDIT`, `FinalizeService::EVENT_BEFORE_SAVE` and `FinalizeService::EVENT_AFTER_SAVE` events, and `EditEvent` and `SaveEvent`.
 - Removed `AiImageEditor::$plugin`, and the `getDrivers()`, `getSessions()` and `getFinalize()` service getters.

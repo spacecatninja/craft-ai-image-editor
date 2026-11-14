@@ -209,7 +209,7 @@ Craft 6's control panel has no jQuery, Garnish or `Craft.sendActionRequest`, so 
 
 The **Edit with AI** element action is a Craft 6 client action (`ai-image-editor:edit`). On the asset's edit screen, **Edit with AI** is in the action menu and the editor's footer, instead of next to the preview's **Edit Image** button.
 
-Craft 6 doesn't yet let plugins add buttons to the asset index toolbar or the asset selection modal, so the **Generate** button isn't available. Open generation sessions from your own code until it is (see the README).
+Craft 6 doesn't yet let plugins add buttons to the asset index toolbar or the asset selection modal, so the **Generate** button isn't available ([craftcms/cms#20689](https://github.com/craftcms/cms/issues/20689)). Open generation sessions from your own code until it is (see the README).
 
 ### Queue job
 

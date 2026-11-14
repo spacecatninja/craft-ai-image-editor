@@ -20,6 +20,8 @@
  * - a `#ai-image-editor:edit:{id}` or `#ai-image-editor:edit-screen:{id}` URL
  *   hash, for the Craft menus that can only link. The `edit-screen` form is used
  *   on the asset's own edit screen, which the editor follows after saving.
+ *   Remove this once those menus can dispatch events:
+ *   https://github.com/craftcms/cms/issues/20688
  *
  * `window.AiImageEditor.open(assetId, settings)` and
  * `window.AiImageEditor.generate(folderId, settings)` open it from code.

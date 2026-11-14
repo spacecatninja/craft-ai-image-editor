@@ -153,7 +153,9 @@ class AiImageEditor extends Plugin
      * panel page, which opens on the `ai-image-editor:edit` window event. The
      * action menus of the full-page asset editor and of element chips can only
      * run Craft's own behaviors, not dispatch events, so those link to a URL
-     * hash the editor listens for instead.
+     * hash the editor listens for instead. Switch them to an event behavior,
+     * and drop the hash, once Craft supports one:
+     * https://github.com/craftcms/cms/issues/20688
      */
     private function registerEditorEntryPoints(): void
     {

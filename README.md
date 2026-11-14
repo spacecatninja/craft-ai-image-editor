@@ -52,7 +52,7 @@ Open the editor with **Edit with AI**: an action on asset indexes (select one im
 
 Besides editing existing assets, the plugin can create images from scratch. A generation session opens the same editor without a source image: describe what you want, iterate in drafts, and accept to save. Generated assets land in the folder that was selected in the index, named after an AI description of the image (e.g. `golden-retriever-on-a-beach.png`), falling back to the first prompt. Since there is no original, only "Save as a new asset" is offered.
 
-Craft 6 doesn't yet let plugins add buttons to the asset index toolbar or the asset selection modal, so the **Generate** button from the Craft 5 version isn't there. Until it is, open a generation session from your own control panel code, with the ID of the folder to save into:
+Craft 6 doesn't yet let plugins add buttons to the asset index toolbar or the asset selection modal, so the **Generate** button from the Craft 5 version isn't there ([craftcms/cms#20689](https://github.com/craftcms/cms/issues/20689)). Until it is, open a generation session from your own control panel code, with the ID of the folder to save into:
 
 ```js
 window.dispatchEvent(new CustomEvent('ai-image-editor:generate', {detail: {folderId: 1}}));
