@@ -10,8 +10,8 @@
 
 namespace SpaceCatNinja\AiImageEditor\Clients;
 
-use Craft;
-use craft\helpers\Json;
+use CraftCms\Cms\Support\Json;
+use SpaceCatNinja\AiImageEditor\Support\HttpClient;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\BadResponseException;
@@ -155,7 +155,7 @@ class GrokApiClient
     private function _client(): Client
     {
         if ($this->_client === null) {
-            $this->_client = Craft::createGuzzleClient([
+            $this->_client = HttpClient::create([
                 'base_uri' => self::API_BASE_URL,
                 'timeout' => $this->timeout,
                 'headers' => [

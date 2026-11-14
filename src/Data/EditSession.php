@@ -10,12 +10,12 @@
 
 namespace SpaceCatNinja\AiImageEditor\Data;
 
-use Craft;
-use craft\base\Model;
-use craft\elements\Asset;
-use craft\helpers\DateTimeHelper;
+use CraftCms\Cms\Element\Elements;
+use CraftCms\Cms\Component\Component;
+use CraftCms\Cms\Asset\Elements\Asset;
+use CraftCms\Cms\Support\DateTimeHelper;
 
-use DateTime;
+use DateTimeInterface;
 
 use SpaceCatNinja\AiImageEditor\Enums\SessionStatus;
 use SpaceCatNinja\AiImageEditor\Models\EditSession as EditSessionRecord;
@@ -26,20 +26,20 @@ use SpaceCatNinja\AiImageEditor\Models\EditSession as EditSessionRecord;
  * @author André Elvan
  * @since 1.0.0
  */
-class EditSession extends Model
+class EditSession extends Component
 {
     // Public Properties
     // =========================================================================
 
     /**
-     * @var DateTime|null
+     * @var DateTimeInterface|null
      */
-    public ?DateTime $dateCreated = null;
+    public ?DateTimeInterface $dateCreated = null;
 
     /**
-     * @var DateTime|null
+     * @var DateTimeInterface|null
      */
-    public ?DateTime $dateUpdated = null;
+    public ?DateTimeInterface $dateUpdated = null;
 
     /**
      * @var string The handle of the edit driver used by this session.
@@ -137,7 +137,7 @@ class EditSession extends Model
     public function getSourceAsset(): ?Asset
     {
         if ($this->_sourceAsset === null && $this->sourceAssetId !== null) {
-            $this->_sourceAsset = Craft::$app->getAssets()->getAssetById($this->sourceAssetId);
+            $this->_sourceAsset = app(Elements::class)->getElementById($this->sourceAssetId, Asset::class);
         }
 
         return $this->_sourceAsset;

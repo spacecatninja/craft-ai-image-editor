@@ -10,8 +10,7 @@
 
 namespace SpaceCatNinja\AiImageEditor\Support;
 
-use craft\helpers\Json;
-use craft\helpers\StringHelper;
+use CraftCms\Cms\Support\Json;
 
 /**
  * Shared prompts and response parsing for the image analysis tasks that
@@ -103,6 +102,6 @@ PROMPT;
             return null;
         }
 
-        return StringHelper::safeTruncate(trim($firstLine), 60);
+        return Strings::safeTruncate(trim($firstLine), 60);
     }
 }

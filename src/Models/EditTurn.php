@@ -10,37 +10,34 @@
 
 namespace SpaceCatNinja\AiImageEditor\Models;
 
-use craft\db\ActiveRecord;
-
+use CraftCms\Cms\Shared\BaseModel;
+use CraftCms\Cms\Shared\Concerns\HasUid;
 use SpaceCatNinja\AiImageEditor\Database\Table;
 
 /**
- * Active record for the turns table.
+ * A turn in an editing session: one prompt, and the image it produced.
  *
- * @property int         $id
- * @property int         $sessionId
- * @property string      $prompt
- * @property string      $resultPath
- * @property string      $resolution
- * @property bool        $isFinal
+ * @property int $id
+ * @property int $sessionId
+ * @property string $prompt
+ * @property string $resultPath
+ * @property string $resolution
+ * @property bool $isFinal
  * @property string|null $providerMeta
- * @property string      $dateCreated
- * @property string      $dateUpdated
- * @property string      $uid
- *
- * @author André Elvan
- * @since 1.0.0
+ * @property \Carbon\Carbon $dateCreated
+ * @property \Carbon\Carbon $dateUpdated
+ * @property string $uid
  */
-class EditTurn extends ActiveRecord
+class EditTurn extends BaseModel
 {
-    // Public Methods
-    // =========================================================================
+    use HasUid;
 
-    /**
-     * @inheritdoc
-     */
-    public static function tableName(): string
-    {
-        return Table::TURNS;
-    }
+    protected $table = Table::TURNS;
+
+    protected $casts = [
+        'sessionId' => 'integer',
+        'isFinal' => 'boolean',
+        'dateCreated' => 'datetime',
+        'dateUpdated' => 'datetime',
+    ];
 }

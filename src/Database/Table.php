@@ -11,16 +11,10 @@
 namespace SpaceCatNinja\AiImageEditor\Database;
 
 /**
- * Database table names used by the plugin.
- *
- * @author André Elvan
- * @since 1.0.0
+ * The plugin's database tables, without the table prefix. The database connection adds it.
  */
 abstract class Table
 {
-    // Const Properties
-    // =========================================================================
-
-    public const SESSIONS = '{{%aiimageeditor_sessions}}';
-    public const TURNS = '{{%aiimageeditor_turns}}';
+    public const string SESSIONS = 'aiimageeditor_sessions';
+    public const string TURNS = 'aiimageeditor_turns';
 }

@@ -10,38 +10,46 @@
 
 namespace SpaceCatNinja\AiImageEditor\Models;
 
-use craft\db\ActiveRecord;
-
+use CraftCms\Cms\Shared\BaseModel;
+use CraftCms\Cms\Shared\Concerns\HasUid;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use SpaceCatNinja\AiImageEditor\Database\Table;
 
 /**
- * Active record for the sessions table.
+ * An editing session.
  *
- * @property int         $id
- * @property int|null    $sourceAssetId
- * @property int|null    $targetFolderId
- * @property int         $userId
- * @property string      $driverHandle
- * @property string      $model
- * @property string      $status
- * @property int|null    $resultAssetId
- * @property string      $dateCreated
- * @property string      $dateUpdated
- * @property string      $uid
- *
- * @author André Elvan
- * @since 1.0.0
+ * @property int $id
+ * @property int|null $sourceAssetId
+ * @property int|null $targetFolderId
+ * @property int $userId
+ * @property string $driverHandle
+ * @property string $model
+ * @property string $status
+ * @property int|null $resultAssetId
+ * @property \Carbon\Carbon $dateCreated
+ * @property \Carbon\Carbon $dateUpdated
+ * @property string $uid
  */
-class EditSession extends ActiveRecord
+class EditSession extends BaseModel
 {
-    // Public Methods
-    // =========================================================================
+    use HasUid;
+
+    protected $table = Table::SESSIONS;
+
+    protected $casts = [
+        'sourceAssetId' => 'integer',
+        'targetFolderId' => 'integer',
+        'userId' => 'integer',
+        'resultAssetId' => 'integer',
+        'dateCreated' => 'datetime',
+        'dateUpdated' => 'datetime',
+    ];
 
     /**
-     * @inheritdoc
+     * @return HasMany<EditTurn, $this>
      */
-    public static function tableName(): string
+    public function turns(): HasMany
     {
-        return Table::SESSIONS;
+        return $this->hasMany(EditTurn::class, 'sessionId');
     }
 }

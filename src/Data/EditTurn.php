@@ -10,11 +10,11 @@
 
 namespace SpaceCatNinja\AiImageEditor\Data;
 
-use craft\base\Model;
-use craft\helpers\DateTimeHelper;
-use craft\helpers\Json;
+use CraftCms\Cms\Component\Component;
+use CraftCms\Cms\Support\DateTimeHelper;
+use CraftCms\Cms\Support\Json;
 
-use DateTime;
+use DateTimeInterface;
 
 use SpaceCatNinja\AiImageEditor\Models\EditTurn as EditTurnRecord;
 
@@ -24,15 +24,15 @@ use SpaceCatNinja\AiImageEditor\Models\EditTurn as EditTurnRecord;
  * @author André Elvan
  * @since 1.0.0
  */
-class EditTurn extends Model
+class EditTurn extends Component
 {
     // Public Properties
     // =========================================================================
 
     /**
-     * @var DateTime|null
+     * @var DateTimeInterface|null
      */
-    public ?DateTime $dateCreated = null;
+    public ?DateTimeInterface $dateCreated = null;
 
     /**
      * @var int|null

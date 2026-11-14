@@ -10,7 +10,7 @@
 
 namespace SpaceCatNinja\AiImageEditor\Data;
 
-use craft\base\Model;
+use CraftCms\Cms\Component\Component;
 
 /**
  * The result of one edit turn performed by an edit driver.
@@ -18,7 +18,7 @@ use craft\base\Model;
  * @author André Elvan
  * @since 1.0.0
  */
-class EditResult extends Model
+class EditResult extends Component
 {
     // Public Properties
     // =========================================================================
