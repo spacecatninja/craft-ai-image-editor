@@ -10,7 +10,7 @@
 
 namespace SpaceCatNinja\AiImageEditor;
 
-use craft\base\Model;
+use CraftCms\Cms\Plugin\PluginSettings;
 
 /**
  * Plugin settings. There is no control panel settings screen, all configuration
@@ -19,7 +19,7 @@ use craft\base\Model;
  * @author André Elvan
  * @since 1.0.0
  */
-class Settings extends Model
+class Settings extends PluginSettings
 {
     // Public Properties
     // =========================================================================
@@ -170,15 +170,15 @@ class Settings extends Model
     /**
      * @inheritdoc
      */
-    protected function defineRules(): array
+    public function getRules(): array
     {
-        $rules = parent::defineRules();
-        $rules[] = [['driver'], 'required'];
-        $rules[] = [['autoFocalPoint', 'descriptiveFilenames'], 'boolean'];
-        $rules[] = [['requestTimeout'], 'integer', 'min' => 5];
-        $rules[] = [['purgeSessionsAfterHours'], 'integer', 'min' => 1];
-        $rules[] = [['maxRequestsPerMinute'], 'integer', 'min' => 0];
-
-        return $rules;
+        return array_merge(parent::getRules(), [
+            'driver' => ['required', 'string'],
+            'autoFocalPoint' => ['boolean'],
+            'descriptiveFilenames' => ['boolean'],
+            'requestTimeout' => ['integer', 'min:5'],
+            'purgeSessionsAfterHours' => ['integer', 'min:1'],
+            'maxRequestsPerMinute' => ['integer', 'min:0'],
+        ]);
     }
 }

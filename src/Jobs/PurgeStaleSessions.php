@@ -10,10 +10,10 @@
 
 namespace SpaceCatNinja\AiImageEditor\Jobs;
 
-use Craft;
-use craft\queue\BaseJob;
+use CraftCms\Cms\Queue\Job;
+use SpaceCatNinja\AiImageEditor\Services\SessionsService;
 
-use SpaceCatNinja\AiImageEditor\AiImageEditor;
+use function CraftCms\Cms\t;
 
 /**
  * Queue job that purges abandoned active edit sessions and their temporary
@@ -23,36 +23,24 @@ use SpaceCatNinja\AiImageEditor\AiImageEditor;
  * @author André Elvan
  * @since 1.0.0
  */
-class PurgeStaleSessions extends BaseJob
+class PurgeStaleSessions extends Job
 {
-    // Public Properties
-    // =========================================================================
-
     /**
-     * @var int|null Age threshold in hours. If null, the `purgeSessionsAfterHours`
-     * setting is used.
+     * @param int|null $hours Age threshold in hours. If null, the `purgeSessionsAfterHours` setting is used.
      */
-    public ?int $hours = null;
-
-    // Public Methods
-    // =========================================================================
-
-    /**
-     * @inheritdoc
-     */
-    public function execute($queue): void
-    {
-        AiImageEditor::$plugin?->getSessions()->purgeStaleSessions($this->hours);
+    public function __construct(
+        public ?int $hours = null,
+    ) {
+        parent::__construct();
     }
 
-    // Protected Methods
-    // =========================================================================
-
-    /**
-     * @inheritdoc
-     */
-    protected function defaultDescription(): ?string
+    public function handle(SessionsService $sessions): void
     {
-        return Craft::t('ai-image-editor', 'Purging stale AI image edit sessions');
+        $sessions->purgeStaleSessions($this->hours);
+    }
+
+    protected function defaultDescription(): string
+    {
+        return t('Purging stale AI image edit sessions', category: 'ai-image-editor');
     }
 }

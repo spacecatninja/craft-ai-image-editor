@@ -10,35 +10,27 @@
 
 namespace SpaceCatNinja\AiImageEditor;
 
-use Craft;
-use craft\base\Element;
-use craft\base\Model;
-use craft\base\Plugin;
-use craft\controllers\ElementsController;
-use craft\elements\Asset;
-use craft\enums\MenuItemType;
-use craft\events\DefineMenuItemsEvent;
-use craft\events\RegisterElementActionsEvent;
-use craft\events\RegisterUserPermissionsEvent;
-use craft\services\UserPermissions;
-use craft\web\View;
-
-use SpaceCatNinja\AiImageEditor\AssetBundles\EditorAsset;
-use SpaceCatNinja\AiImageEditor\Http\Controllers\SessionsController;
-use SpaceCatNinja\AiImageEditor\Drivers\FluxEditDriver;
-use SpaceCatNinja\AiImageEditor\Drivers\GeminiEditDriver;
-use SpaceCatNinja\AiImageEditor\Drivers\GrokEditDriver;
-use SpaceCatNinja\AiImageEditor\Drivers\OpenAiEditDriver;
-use SpaceCatNinja\AiImageEditor\ElementActions\EditWithAi;
-use SpaceCatNinja\AiImageEditor\Events\RegisterEditDriversEvent;
+use CraftCms\Cms\Asset\Elements\Asset;
+use CraftCms\Cms\Asset\Enums\FileKind;
+use CraftCms\Cms\Element\Actions\ClientAction;
+use CraftCms\Cms\Element\Enums\ElementActionContext;
+use CraftCms\Cms\Element\Events\ElementActionMenuDescriptorsResolving;
+use CraftCms\Cms\Element\Events\ElementActionMenuItemsResolving;
+use CraftCms\Cms\Element\Events\ElementActionsResolving;
+use CraftCms\Cms\Element\Events\ElementAdditionalButtonDescriptorsResolving;
+use CraftCms\Cms\Plugin\Plugin;
+use CraftCms\Cms\Plugin\PluginSettings;
+use CraftCms\Cms\User\Data\Permission;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
+use SpaceCatNinja\AiImageEditor\Console\Commands\PurgeSessionsCommand;
+use SpaceCatNinja\AiImageEditor\Console\Commands\TestConnectionCommand;
 use SpaceCatNinja\AiImageEditor\Jobs\PurgeStaleSessions;
-use SpaceCatNinja\AiImageEditor\Settings;
-use SpaceCatNinja\AiImageEditor\Services\DriversService;
-use SpaceCatNinja\AiImageEditor\Services\ServicesTrait;
 use SpaceCatNinja\AiImageEditor\Services\SessionsService;
+use Throwable;
 
-use yii\base\Event;
-use yii\base\InvalidConfigException;
+use function CraftCms\Cms\t;
 
 /**
  * AI Image Editor lets editors modify existing assets through free-form,
@@ -50,257 +42,232 @@ use yii\base\InvalidConfigException;
  */
 class AiImageEditor extends Plugin
 {
-    // Traits
-    // =========================================================================
-
-    use ServicesTrait;
-
     // Const Properties
     // =========================================================================
 
     /**
-     * @event RegisterEditDriversEvent The event that is triggered when edit drivers are registered.
-     * @since 1.0.0
+     * @var string The permission required to edit existing images with AI.
+     * @since 2.0.0
      */
-    public const EVENT_REGISTER_EDIT_DRIVERS = 'aiImageEditorRegisterEditDrivers';
-
-    // Static Properties
-    // =========================================================================
+    public const PERMISSION_EDIT = 'ai-image-editor:edit';
 
     /**
-     * @var AiImageEditor|null The plugin instance.
+     * @var string The permission required to generate new images with AI.
+     * @since 2.0.0
      */
-    public static ?AiImageEditor $plugin = null;
+    public const PERMISSION_GENERATE = 'ai-image-editor:generate';
+
+    /**
+     * @var string The window event that opens the editor. Its detail carries the
+     * asset ID as `elementIds` (from element actions) or `assetId`.
+     * @since 2.0.0
+     */
+    public const EDIT_EVENT = 'ai-image-editor:edit';
+
+    /**
+     * @var string The URL hash that opens the editor for an asset, for the
+     * Craft menus that can only link. `{id}` is replaced with the asset ID.
+     */
+    private const EDIT_HASH = '#ai-image-editor:edit:{id}';
+
+    /**
+     * @var string The URL hash that opens the editor from the asset's own edit
+     * screen, which the editor then follows after saving.
+     */
+    private const EDIT_SCREEN_HASH = '#ai-image-editor:edit-screen:{id}';
+
+    /**
+     * @var string Cache key that throttles dispatching the stale session purge job.
+     */
+    private const PURGE_SCHEDULED_CACHE_KEY = 'ai-image-editor:purge-scheduled';
 
     // Public Properties
     // =========================================================================
 
-    /**
-     * @var string
-     */
-    public string $schemaVersion = '1.0.0';
+    public string $schemaVersion = '2.0.0';
+
+    public string $minVersionRequired = '1.2.0';
+
+    protected array $commands = [
+        PurgeSessionsCommand::class,
+        TestConnectionCommand::class,
+    ];
+
+    protected array $scripts = [
+        __DIR__ . '/../resources/dist/editor.js' => 'editor.js',
+    ];
+
+    protected array $styles = [
+        __DIR__ . '/../resources/dist/editor.css' => 'editor.css',
+    ];
 
     // Public Methods
     // =========================================================================
 
-    /**
-     * @inheritdoc
-     */
-    public function init(): void
+    public function register(): void
     {
-        parent::init();
-        self::$plugin = $this;
+        parent::register();
 
-        // Registered in every context so the permissions exist and enforce
-        // everywhere, not just in the control panel.
-        $this->_registerPermissions();
-
-        // Deferred until the app has fully initialized. Driver registration must
-        // wait so drivers added by other plugins aren't missed due to load order,
-        // and the CP entry points read the current user's permissions, which
-        // triggers a user-identity query that must not run before Craft is ready
-        // (it warns on Craft Cloud otherwise).
-        Craft::$app->onInit(function() {
-            $this->_registerEditDrivers();
-
-            if (Craft::$app->getRequest()->getIsCpRequest()) {
-                $this->_registerCpEntryPoints();
-                $this->_schedulePurgeJob();
-            }
-        });
+        // Bound here rather than in boot(), because Craft loads the plugin's routes before boot() runs.
+        $this->app->singleton(Settings::class, fn() => $this->getSettings());
     }
 
-    /**
-     * Returns the plugin settings, merged with any overrides from `config/ai-image-editor.php`.
-     *
-     * @return Settings|null
-     *
-     * @author André Elvan
-     * @since 1.0.0
-     */
-    public function getSettings(): ?Settings
+    public function boot(): void
     {
-        /** @var Settings|null $settings */
-        $settings = parent::getSettings();
-
-        return $settings;
+        $this->registerEditorEntryPoints();
+        $this->schedulePurgeJob();
     }
 
     // Protected Methods
     // =========================================================================
 
-    /**
-     * @inheritdoc
-     */
-    protected function createSettingsModel(): ?Model
+    protected static function createSettings(): ?PluginSettings
     {
         return new Settings();
+    }
+
+    /**
+     * The plugin's user permissions: one for editing existing images with AI,
+     * one for generating new ones. These gate the editor in addition to the
+     * volume permissions that gate the actual save.
+     *
+     * @return Permission[]
+     */
+    protected function getPermissions(): array
+    {
+        return [
+            new Permission(self::PERMISSION_EDIT, t('Edit images with AI', category: 'ai-image-editor')),
+            new Permission(self::PERMISSION_GENERATE, t('Generate images with AI', category: 'ai-image-editor')),
+        ];
     }
 
     // Private Methods
     // =========================================================================
 
     /**
-     * Registers the built-in edit drivers, and any drivers added through the
-     * `EVENT_REGISTER_EDIT_DRIVERS` event.
-     */
-    private function _registerEditDrivers(): void
-    {
-        $event = new RegisterEditDriversEvent([
-            'drivers' => [
-                GeminiEditDriver::HANDLE => GeminiEditDriver::class,
-                OpenAiEditDriver::HANDLE => OpenAiEditDriver::class,
-                FluxEditDriver::HANDLE => FluxEditDriver::class,
-                GrokEditDriver::HANDLE => GrokEditDriver::class,
-            ],
-        ]);
-
-        $this->trigger(self::EVENT_REGISTER_EDIT_DRIVERS, $event);
-
-        foreach ($event->drivers as $handle => $class) {
-            DriversService::registerDriver($handle, $class);
-        }
-    }
-
-    /**
-     * Registers the plugin's user permissions: one for editing existing images
-     * with AI, one for generating new ones. These gate the editor in addition
-     * to the volume permissions that gate the actual save.
-     */
-    private function _registerPermissions(): void
-    {
-        Event::on(
-            UserPermissions::class,
-            UserPermissions::EVENT_REGISTER_PERMISSIONS,
-            static function(RegisterUserPermissionsEvent $event) {
-                $event->permissions[] = [
-                    'heading' => Craft::t('ai-image-editor', 'AI Image Editor'),
-                    'permissions' => [
-                        SessionsController::PERMISSION_EDIT => [
-                            'label' => Craft::t('ai-image-editor', 'Edit images with AI'),
-                        ],
-                        SessionsController::PERMISSION_GENERATE => [
-                            'label' => Craft::t('ai-image-editor', 'Generate images with AI'),
-                        ],
-                    ],
-                ];
-            }
-        );
-    }
-
-    /**
      * Registers the control panel entry points for opening the editor: an
-     * element action on asset indexes, and an action menu item on assets,
-     * placed alongside Craft's native Edit Image action.
+     * element action on asset indexes, an action menu item on assets, and a
+     * button in the asset editor's footer.
+     *
+     * The editor itself is `resources/dist/editor.js`, loaded on every control
+     * panel page, which opens on the `ai-image-editor:edit` window event. The
+     * action menus of the full-page asset editor and of element chips can only
+     * run Craft's own behaviors, not dispatch events, so those link to a URL
+     * hash the editor listens for instead.
      */
-    private function _registerCpEntryPoints(): void
+    private function registerEditorEntryPoints(): void
     {
-        // Registered CP-wide: the asset index toolbar button must be wired
-        // before element indexes initialize, and element action assets are
-        // only delivered by ajax after that point.
-        if (!Craft::$app->getRequest()->getIsAjax()) {
-            $view = Craft::$app->getView();
-            $view->registerAssetBundle(EditorAsset::class);
-
-            // Expose the generate permission so the index "Generate" button can
-            // gate itself; it's drawn before any session (and thus payload) exists.
-            $canGenerate = Craft::$app->getUser()->checkPermission(SessionsController::PERMISSION_GENERATE) ? 'true' : 'false';
-            $view->registerJs("Craft.AiImageEditor = Craft.AiImageEditor || {}; Craft.AiImageEditor.canGenerate = {$canGenerate};", View::POS_END);
-        }
-
-        Event::on(
-            Asset::class,
-            Element::EVENT_REGISTER_ACTIONS,
-            static function(RegisterElementActionsEvent $event) {
-                if (Craft::$app->getUser()->checkPermission(SessionsController::PERMISSION_EDIT)) {
-                    $event->actions[] = EditWithAi::class;
-                }
+        Event::listen(static function(ElementActionsResolving $event): void {
+            if (!is_a($event->elementType, Asset::class, true) || !Gate::check(self::PERMISSION_EDIT)) {
+                return;
             }
-        );
 
-        Event::on(
-            Asset::class,
-            Element::EVENT_DEFINE_ACTION_MENU_ITEMS,
-            static function(DefineMenuItemsEvent $event) {
-                /** @var Asset $asset */
-                $asset = $event->sender;
+            $event->actions[] = new ClientAction(
+                key: 'ai-image-editor:edit',
+                label: t('Edit with AI', category: 'ai-image-editor'),
+                event: self::EDIT_EVENT,
+                bulk: false,
+                selectionAttribute: 'imageEditable',
+            );
+        });
 
-                if ($asset->kind !== Asset::KIND_IMAGE || !$asset->id) {
-                    return;
-                }
-
-                if (\in_array(strtolower($asset->getExtension()), SessionsService::UNSUPPORTED_EXTENSIONS, true)) {
-                    return;
-                }
-
-                try {
-                    $volume = $asset->getVolume();
-                } catch (InvalidConfigException) {
-                    return;
-                }
-
-                // Requires both the AI-edit permission and the ability to save
-                // the result as an asset in this volume.
-                $user = Craft::$app->getUser();
-
-                if (!$user->checkPermission(SessionsController::PERMISSION_EDIT) || !$user->checkPermission("saveAssets:{$volume->uid}")) {
-                    return;
-                }
-
-                $view = Craft::$app->getView();
-                $view->registerAssetBundle(EditorAsset::class);
-
-                $itemId = sprintf('action-ai-image-edit-%s', mt_rand());
-
-                $event->items[] = [
-                    'type' => MenuItemType::Button,
-                    'id' => $itemId,
-                    'icon' => 'wand-magic-sparkles',
-                    'label' => Craft::t('ai-image-editor', 'Edit with AI'),
-                ];
-
-                // On the asset's own edit screen the editor navigates after
-                // saving: reload on replace, go to the new asset otherwise.
-                $isEditScreen = Craft::$app->controller instanceof ElementsController
-                    && Craft::$app->controller->element instanceof Asset
-                    && (int)Craft::$app->controller->element->id === (int)$asset->id;
-
-                $view->registerJsWithVars(fn($id, $assetId, $isEditScreen) => <<<JS
-$('#' + $id).on('activate', () => {
-  Craft.AiImageEditor.open($assetId, {isEditScreen: $isEditScreen});
-});
-JS, [
-                    $view->namespaceInputId($itemId),
-                    $asset->id,
-                    $isEditScreen,
-                ]);
-
-                // On the asset's own edit screen, also surface the editor as a
-                // button inside the preview thumbnail, next to Craft's native
-                // "Preview" and "Edit Image" buttons.
-                if ($isEditScreen) {
-                    $view->registerJsWithVars(fn($assetId) => <<<JS
-Craft.AiImageEditor.attachEditScreenButton($assetId);
-JS, [$asset->id]);
-                }
+        // Server-rendered menus (slideouts, the legacy element editor) dispatch window events.
+        Event::listen(static function(ElementActionMenuItemsResolving $event): void {
+            if (!self::canEditAsset($event->element)) {
+                return;
             }
-        );
+
+            $event->items[] = [
+                'id' => sprintf('action-ai-image-edit-%s', mt_rand()),
+                'icon' => 'wand-magic-sparkles',
+                'label' => t('Edit with AI', category: 'ai-image-editor'),
+                'action' => [
+                    'type' => 'event',
+                    'name' => self::EDIT_EVENT,
+                    'detail' => ['assetId' => $event->element->id],
+                ],
+            ];
+        });
+
+        // The full-page asset editor and element chips only run behaviors, so these link to the editor's URL hash.
+        Event::listen(static function(ElementActionMenuDescriptorsResolving $event): void {
+            if (!self::canEditAsset($event->element)) {
+                return;
+            }
+
+            $event->items[] = [
+                'label' => t('Edit with AI', category: 'ai-image-editor'),
+                'icon' => 'wand-magic-sparkles',
+                'behavior' => [
+                    'type' => 'link',
+                    'href' => self::editHash($event->element, $event->context === ElementActionContext::Editor),
+                ],
+            ];
+        });
+
+        // Next to Craft's own buttons in the asset editor's footer, like the Craft 5 button beside "Edit Image".
+        Event::listen(static function(ElementAdditionalButtonDescriptorsResolving $event): void {
+            if (!self::canEditAsset($event->element)) {
+                return;
+            }
+
+            $event->items[] = [
+                'label' => t('Edit with AI', category: 'ai-image-editor'),
+                'icon' => 'wand-magic-sparkles',
+                'behavior' => [
+                    'type' => 'link',
+                    'href' => self::editHash($event->element, true),
+                ],
+            ];
+        });
     }
 
     /**
-     * Pushes a purge job for stale sessions, at most once per throttle window.
+     * Whether the current user may open the editor for an element: an existing
+     * raster image asset, with the AI edit permission, and the ability to save
+     * the result as an asset in its volume.
      */
-    private function _schedulePurgeJob(): void
+    private static function canEditAsset(mixed $element): bool
     {
-        $cache = Craft::$app->getCache();
-        $cacheKey = 'ai-image-editor:purge-scheduled';
+        if (!$element instanceof Asset || !$element->id || $element->kind !== FileKind::Image->value) {
+            return false;
+        }
 
-        // A string sentinel, since cache->get() returns false for missing keys.
-        if ($cache->get($cacheKey) === 'scheduled') {
+        if (\in_array(strtolower($element->getExtension()), SessionsService::UNSUPPORTED_EXTENSIONS, true)) {
+            return false;
+        }
+
+        try {
+            $volume = $element->getVolume();
+        } catch (Throwable) {
+            return false;
+        }
+
+        return Gate::check(self::PERMISSION_EDIT) && Gate::check("saveAssets:{$volume->uid}");
+    }
+
+    private static function editHash(Asset $asset, bool $isEditScreen): string
+    {
+        return str_replace('{id}', (string)$asset->id, $isEditScreen ? self::EDIT_SCREEN_HASH : self::EDIT_HASH);
+    }
+
+    /**
+     * Dispatches the stale session purge job from control panel requests, at most once every six hours.
+     */
+    private function schedulePurgeJob(): void
+    {
+        if ($this->app->runningInConsole()) {
             return;
         }
 
-        Craft::$app->getQueue()->push(new PurgeStaleSessions());
-        $cache->set($cacheKey, 'scheduled', 21600);
+        $this->app->booted(static function(): void {
+            try {
+                if (request()->isCpRequest() && Cache::add(self::PURGE_SCHEDULED_CACHE_KEY, true, now()->addHours(6))) {
+                    dispatch(new PurgeStaleSessions());
+                }
+            } catch (Throwable) {
+                // Purging is best-effort, and must never break a control panel request.
+            }
+        });
     }
 }

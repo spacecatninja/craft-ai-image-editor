@@ -10,33 +10,33 @@
 
 namespace SpaceCatNinja\AiImageEditor\Services;
 
-use Craft;
-use craft\base\Component;
-use craft\base\FsInterface;
-use craft\elements\Asset;
-use craft\elements\User;
-use craft\fs\Temp;
-use craft\helpers\Assets as AssetsHelper;
-use craft\helpers\DateTimeHelper;
-use craft\helpers\Db;
-use craft\helpers\FileHelper;
-use craft\helpers\Json;
-use craft\helpers\StringHelper;
-
-use SpaceCatNinja\AiImageEditor\AiImageEditor;
-use SpaceCatNinja\AiImageEditor\Database\Table;
-use SpaceCatNinja\AiImageEditor\Enums\SessionStatus;
-use SpaceCatNinja\AiImageEditor\Events\EditEvent;
-use SpaceCatNinja\AiImageEditor\Exceptions\SessionException;
+use CraftCms\Cms\Asset\AssetsHelper;
+use CraftCms\Cms\Asset\Elements\Asset;
+use CraftCms\Cms\Asset\Enums\FileKind;
+use CraftCms\Cms\Support\Facades\Assets;
+use CraftCms\Cms\Support\Facades\Path;
+use CraftCms\Cms\Support\File;
+use CraftCms\Cms\Support\Json;
+use CraftCms\Cms\Support\Str;
+use CraftCms\Cms\User\Elements\User;
+use Illuminate\Container\Attributes\Singleton;
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\Log;
 use SpaceCatNinja\AiImageEditor\Data\EditRequest;
 use SpaceCatNinja\AiImageEditor\Data\EditResult;
 use SpaceCatNinja\AiImageEditor\Data\EditSession;
 use SpaceCatNinja\AiImageEditor\Data\EditTurn;
+use SpaceCatNinja\AiImageEditor\Enums\SessionStatus;
+use SpaceCatNinja\AiImageEditor\Events\EditingImage;
+use SpaceCatNinja\AiImageEditor\Events\ImageEdited;
+use SpaceCatNinja\AiImageEditor\Exceptions\EditDriverException;
+use SpaceCatNinja\AiImageEditor\Exceptions\SessionException;
 use SpaceCatNinja\AiImageEditor\Models\EditSession as EditSessionRecord;
 use SpaceCatNinja\AiImageEditor\Models\EditTurn as EditTurnRecord;
-
+use SpaceCatNinja\AiImageEditor\Settings;
 use Throwable;
-use yii\base\InvalidConfigException;
+
+use function CraftCms\Cms\t;
 
 /**
  * The Sessions service manages edit sessions, their turns, and the temporary
@@ -44,28 +44,16 @@ use yii\base\InvalidConfigException;
  * assets, they live in the plugin's runtime storage until a session is
  * finalized or purged.
  *
- * An instance of the service is available via `AiImageEditor::$plugin->getSessions()`.
+ * Resolve it from the container: `app(SessionsService::class)`.
  *
  * @author André Elvan
  * @since 1.0.0
  */
-class SessionsService extends Component
+#[Singleton]
+class SessionsService
 {
     // Const Properties
     // =========================================================================
-
-    /**
-     * @event EditEvent The event triggered before an edit turn runs against a
-     * driver. Handlers may mutate the request or cancel the turn.
-     * @since 1.0.0
-     */
-    public const EVENT_BEFORE_EDIT = 'beforeEdit';
-
-    /**
-     * @event EditEvent The event triggered after a successful edit turn.
-     * @since 1.0.0
-     */
-    public const EVENT_AFTER_EDIT = 'afterEdit';
 
     /**
      * @var string[] File extensions that are excluded even though Craft treats them as images.
@@ -80,11 +68,10 @@ class SessionsService extends Component
     // Private Properties
     // =========================================================================
 
-    /**
-     * @var FsInterface|null The filesystem holding session working images.
-     * @see _fs()
-     */
-    private ?FsInterface $_fs = null;
+    public function __construct(
+        private readonly DriversService $drivers,
+    ) {
+    }
 
     // Public Methods
     // =========================================================================
@@ -103,25 +90,23 @@ class SessionsService extends Component
      */
     public function createSession(Asset $asset, User $user): EditSession
     {
-        if ($asset->kind !== Asset::KIND_IMAGE) {
-            throw new SessionException(Craft::t('ai-image-editor', 'Only image assets can be edited.'));
+        if ($asset->kind !== FileKind::Image->value) {
+            throw new SessionException(t('Only image assets can be edited.', category: 'ai-image-editor'));
         }
 
         $extension = strtolower($asset->getExtension());
 
         if (\in_array($extension, self::UNSUPPORTED_EXTENSIONS, true)) {
-            throw new SessionException(Craft::t('ai-image-editor', 'Vector images can not be edited.'));
+            throw new SessionException(t('Vector images can not be edited.', category: 'ai-image-editor'));
         }
-
-        $settings = AiImageEditor::$plugin?->getSettings();
 
         $record = new EditSessionRecord();
         $record->sourceAssetId = $asset->id;
         $record->userId = $user->id;
-        $record->driverHandle = $settings?->driver ?? '';
+        $record->driverHandle = app(Settings::class)->driver;
         $record->model = $this->_resolveSessionModel($record->driverHandle);
         $record->status = SessionStatus::Active->value;
-        $record->save(false);
+        $record->save();
 
         $session = EditSession::fromRecord($record);
 
@@ -130,21 +115,21 @@ class SessionsService extends Component
             $stream = fopen($tempPath, 'rb');
 
             if ($stream === false) {
-                throw new SessionException(Craft::t('ai-image-editor', 'The source image could not be read.'));
+                throw new SessionException(t('The source image could not be read.', category: 'ai-image-editor'));
             }
 
-            $this->_fs()->writeFileFromStream($this->_sessionPrefix($session) . '/source.' . $extension, $stream);
+            $this->disk()->writeStream($this->_sessionPrefix($session) . '/source.' . $extension, $stream);
 
             if (\is_resource($stream)) {
                 fclose($stream);
             }
 
-            FileHelper::unlink($tempPath);
+            File::delete($tempPath);
         } catch (Throwable $throwable) {
             $record->delete();
             $this->deleteSessionFiles($record->id);
 
-            throw new SessionException(Craft::t('ai-image-editor', 'The source image could not be copied into the edit session.'), 0, $throwable);
+            throw new SessionException(t('The source image could not be copied into the edit session.', category: 'ai-image-editor'), 0, $throwable);
         }
 
         return $session;
@@ -164,16 +149,14 @@ class SessionsService extends Component
      */
     public function createGenerationSession(User $user, int $folderId): EditSession
     {
-        $settings = AiImageEditor::$plugin?->getSettings();
-
         $record = new EditSessionRecord();
         $record->sourceAssetId = null;
         $record->targetFolderId = $folderId;
         $record->userId = $user->id;
-        $record->driverHandle = $settings?->driver ?? '';
+        $record->driverHandle = app(Settings::class)->driver;
         $record->model = $this->_resolveSessionModel($record->driverHandle);
         $record->status = SessionStatus::Active->value;
-        $record->save(false);
+        $record->save();
 
         return EditSession::fromRecord($record);
     }
@@ -189,7 +172,7 @@ class SessionsService extends Component
      */
     public function getSessionById(int $id): ?EditSession
     {
-        $record = EditSessionRecord::findOne(['id' => $id]);
+        $record = EditSessionRecord::find($id);
 
         return $record !== null ? EditSession::fromRecord($record) : null;
     }
@@ -206,21 +189,13 @@ class SessionsService extends Component
      */
     public function getTurns(EditSession $session, bool $includeFinal = true): array
     {
-        $query = EditTurnRecord::find()
-            ->where(['sessionId' => $session->id])
-            ->orderBy(['id' => SORT_ASC]);
-
-        if (!$includeFinal) {
-            $query->andWhere(['isFinal' => false]);
-        }
-
-        /** @var EditTurnRecord[] $records */
-        $records = $query->all();
-
-        return array_map(
-            static fn(EditTurnRecord $record) => EditTurn::fromRecord($record),
-            $records
-        );
+        return EditTurnRecord::query()
+            ->where('sessionId', $session->id)
+            ->when(!$includeFinal, fn($query) => $query->where('isFinal', false))
+            ->orderBy('id')
+            ->get()
+            ->map(static fn(EditTurnRecord $record) => EditTurn::fromRecord($record))
+            ->all();
     }
 
     /**
@@ -237,10 +212,11 @@ class SessionsService extends Component
     public function getLatestTurn(EditSession $session, bool $isFinal = false): ?EditTurn
     {
         /** @var EditTurnRecord|null $record */
-        $record = EditTurnRecord::find()
-            ->where(['sessionId' => $session->id, 'isFinal' => $isFinal])
-            ->orderBy(['id' => SORT_DESC])
-            ->one();
+        $record = EditTurnRecord::query()
+            ->where('sessionId', $session->id)
+            ->where('isFinal', $isFinal)
+            ->orderByDesc('id')
+            ->first();
 
         return $record !== null ? EditTurn::fromRecord($record) : null;
     }
@@ -273,17 +249,16 @@ class SessionsService extends Component
             }
 
             try {
-                $this->_fs()->deleteFile($prefix . '/' . $turn->resultPath);
+                $this->disk()->delete($prefix . '/' . $turn->resultPath);
             } catch (Throwable $throwable) {
-                Craft::warning("Could not delete reverted turn file \"{$turn->resultPath}\": {$throwable->getMessage()}", __METHOD__);
+                Log::warning("Could not delete reverted turn file \"{$turn->resultPath}\": {$throwable->getMessage()}");
             }
         }
 
-        EditTurnRecord::deleteAll([
-            'and',
-            ['sessionId' => $session->id],
-            ['or', ['>', 'id', $turnId], ['isFinal' => true]],
-        ]);
+        EditTurnRecord::query()
+            ->where('sessionId', $session->id)
+            ->where(fn($query) => $query->where('id', '>', $turnId)->orWhere('isFinal', true))
+            ->delete();
 
         $this->_breakProviderChain($session, $turnId);
         $this->_touchSession($session);
@@ -306,13 +281,13 @@ class SessionsService extends Component
 
         foreach ($this->getTurns($session) as $turn) {
             try {
-                $this->_fs()->deleteFile($prefix . '/' . $turn->resultPath);
+                $this->disk()->delete($prefix . '/' . $turn->resultPath);
             } catch (Throwable $throwable) {
-                Craft::warning("Could not delete reverted turn file \"{$turn->resultPath}\": {$throwable->getMessage()}", __METHOD__);
+                Log::warning("Could not delete reverted turn file \"{$turn->resultPath}\": {$throwable->getMessage()}");
             }
         }
 
-        EditTurnRecord::deleteAll(['sessionId' => $session->id]);
+        EditTurnRecord::query()->where('sessionId', $session->id)->delete();
 
         $this->_touchSession($session);
     }
@@ -331,14 +306,14 @@ class SessionsService extends Component
      * @param string|null $outputFormat    requested output format, null lets the driver use its default
      * @return array{result: \SpaceCatNinja\AiImageEditor\Data\EditResult, turn: EditTurn|null}
      * @throws SessionException if the session's working image no longer exists on disk
-     * @throws InvalidConfigException if the session's driver is not registered
+     * @throws EditDriverException if the session's driver is not registered
      *
      * @author André Elvan
      * @since 1.0.0
      */
     public function runTurn(EditSession $session, string $prompt, ?string $resolution = null, bool $isFinal = false, bool $preserveContent = true, ?string $aspectRatio = null, ?string $outputFormat = null): array
     {
-        $driver = AiImageEditor::$plugin?->getDrivers()->getDriver($session->driverHandle);
+        $driver = $this->drivers->getDriver($session->driverHandle);
         $latestTurn = $this->getLatestTurn($session);
 
         // Materialize the working image (the latest turn, else the source) from
@@ -350,7 +325,7 @@ class SessionsService extends Component
 
         if ($localSource === null) {
             if (!$session->isGeneration() || $latestTurn !== null) {
-                throw new SessionException(Craft::t('ai-image-editor', 'The working image for this session no longer exists. It may have been purged, please start a new session.'));
+                throw new SessionException(t('The working image for this session no longer exists. It may have been purged, please start a new session.', category: 'ai-image-editor'));
             }
 
             $localSource = '';
@@ -373,19 +348,16 @@ class SessionsService extends Component
                 'targetDir' => $targetDir,
             ]);
 
-            if ($this->hasEventHandlers(self::EVENT_BEFORE_EDIT)) {
-                $event = new EditEvent(['session' => $session, 'request' => $request]);
-                $this->trigger(self::EVENT_BEFORE_EDIT, $event);
+            event($event = new EditingImage($session, $request));
 
-                // A handler may have swapped in a different request.
-                $request = $event->request;
+            // A listener may have swapped in a different request.
+            $request = $event->request;
 
-                if (!$event->isValid) {
-                    $result = new EditResult();
-                    $result->errorMessage = Craft::t('ai-image-editor', 'The edit was cancelled.');
+            if (!$event->isValid) {
+                $result = new EditResult();
+                $result->errorMessage = t('The edit was cancelled.', category: 'ai-image-editor');
 
-                    return ['result' => $result, 'turn' => null];
-                }
+                return ['result' => $result, 'turn' => null];
             }
 
             $result = $driver->edit($request);
@@ -406,24 +378,18 @@ class SessionsService extends Component
             $turnRecord->resolution = $result->resolutionActual ?? $request->resolution;
             $turnRecord->isFinal = $isFinal;
             $turnRecord->providerMeta = Json::encode($result->providerMeta);
-            $turnRecord->save(false);
+            $turnRecord->save();
 
             $this->_touchSession($session);
 
             $turn = EditTurn::fromRecord($turnRecord);
 
-            if ($this->hasEventHandlers(self::EVENT_AFTER_EDIT)) {
-                $this->trigger(self::EVENT_AFTER_EDIT, new EditEvent([
-                    'session' => $session,
-                    'request' => $request,
-                    'result' => $result,
-                ]));
-            }
+            event(new ImageEdited($session, $request, $result));
 
             return ['result' => $result, 'turn' => $turn];
         } finally {
             if ($localSource !== '') {
-                FileHelper::unlink($localSource);
+                File::delete($localSource);
             }
 
             $this->_removeLocalDir($targetDir);
@@ -442,9 +408,7 @@ class SessionsService extends Component
      */
     public function updateSessionModel(EditSession $session, string $model): void
     {
-        Craft::$app->getDb()->createCommand()
-            ->update(Table::SESSIONS, ['model' => $model], ['id' => $session->id])
-            ->execute();
+        EditSessionRecord::query()->whereKey($session->id)->update(['model' => $model]);
 
         $session->model = $model;
     }
@@ -459,7 +423,7 @@ class SessionsService extends Component
      */
     public function discardSession(EditSession $session): void
     {
-        EditSessionRecord::deleteAll(['id' => $session->id]);
+        EditSessionRecord::query()->whereKey($session->id)->delete();
         $this->deleteSessionFiles($session->id);
     }
 
@@ -475,12 +439,10 @@ class SessionsService extends Component
      */
     public function markFinalized(EditSession $session, int $assetId): void
     {
-        Craft::$app->getDb()->createCommand()
-            ->update(Table::SESSIONS, [
-                'status' => SessionStatus::Finalized->value,
-                'resultAssetId' => $assetId,
-            ], ['id' => $session->id])
-            ->execute();
+        EditSessionRecord::query()->whereKey($session->id)->update([
+            'status' => SessionStatus::Finalized->value,
+            'resultAssetId' => $assetId,
+        ]);
 
         $this->deleteSessionFiles($session->id);
     }
@@ -497,15 +459,12 @@ class SessionsService extends Component
      */
     public function purgeStaleSessions(?int $hours = null): int
     {
-        $settings = AiImageEditor::$plugin?->getSettings();
-        $hours ??= $settings->purgeSessionsAfterHours ?? 48;
-        $threshold = Db::prepareDateForDb(DateTimeHelper::now()->modify("-{$hours} hours"));
+        $hours ??= app(Settings::class)->purgeSessionsAfterHours;
 
-        /** @var EditSessionRecord[] $records */
-        $records = EditSessionRecord::find()
-            ->where(['status' => SessionStatus::Active->value])
-            ->andWhere(['<', 'dateUpdated', $threshold])
-            ->all();
+        $records = EditSessionRecord::query()
+            ->where('status', SessionStatus::Active->value)
+            ->where('dateUpdated', '<', now()->subHours($hours))
+            ->get();
 
         foreach ($records as $record) {
             $this->deleteSessionFiles($record->id);
@@ -596,11 +555,11 @@ class SessionsService extends Component
         $path = self::FS_BASE_DIR . '/' . $sessionId;
 
         try {
-            if ($this->_fs()->directoryExists($path)) {
-                $this->_fs()->deleteDirectory($path);
+            if ($this->disk()->directoryExists($path)) {
+                $this->disk()->deleteDirectory($path);
             }
         } catch (Throwable $throwable) {
-            Craft::warning("Could not remove session files \"{$path}\": {$throwable->getMessage()}", __METHOD__);
+            Log::warning("Could not remove session files \"{$path}\": {$throwable->getMessage()}");
         }
     }
 
@@ -614,30 +573,24 @@ class SessionsService extends Component
     private function _resolveSessionModel(string $driverHandle): string
     {
         try {
-            return AiImageEditor::$plugin?->getDrivers()->getDriver($driverHandle)->getDefaultModel() ?? '';
+            return $this->drivers->getDriver($driverHandle)->getDefaultModel() ?? '';
         } catch (Throwable) {
             return '';
         }
     }
 
     /**
-     * Returns the filesystem used for session working images.
+     * Returns the disk used for session working images: Craft's temporary asset
+     * upload disk (the `tempAssetUploadDisk` general config setting).
      *
-     * On Craft Cloud this resolves to a private, object-storage-backed temp
-     * filesystem that is not registered as an asset volume filesystem, so
-     * nothing written here is ever picked up by a volume re-index; locally it's
-     * an on-disk temp filesystem. Must be created through the container
-     * (`Craft::createObject`) so Cloud's `Temp` override applies.
+     * It isn't an asset volume, so nothing written here is ever picked up by a
+     * volume re-index. Locally it's an on-disk temp directory; hosts with an
+     * ephemeral filesystem point it at object storage, so session files survive
+     * between requests served by different instances.
      */
-    private function _fs(): FsInterface
+    private function disk(): FilesystemAdapter
     {
-        if ($this->_fs === null) {
-            /** @var FsInterface $fs */
-            $fs = Craft::createObject(Temp::class);
-            $this->_fs = $fs;
-        }
-
-        return $this->_fs;
+        return Assets::getTempAssetUploadDisk();
     }
 
     /**
@@ -658,9 +611,9 @@ class SessionsService extends Component
         $prefix = $this->_sessionPrefix($session);
 
         try {
-            foreach ($this->_fs()->getFileList($prefix, false) as $listing) {
-                if (!$listing->getIsDir() && str_starts_with($listing->getBasename(), 'source.')) {
-                    return $prefix . '/' . $listing->getBasename();
+            foreach ($this->disk()->files($prefix) as $path) {
+                if (str_starts_with(basename($path), 'source.')) {
+                    return $path;
                 }
             }
         } catch (Throwable) {
@@ -676,14 +629,19 @@ class SessionsService extends Component
      */
     private function _materialize(string $key): ?string
     {
-        $fs = $this->_fs();
+        $disk = $this->disk();
 
-        if (!$fs->fileExists($key)) {
+        if (!$disk->fileExists($key)) {
+            return null;
+        }
+
+        $in = $disk->readStream($key);
+
+        if ($in === null) {
             return null;
         }
 
         $localPath = AssetsHelper::tempFilePath(pathinfo($key, PATHINFO_EXTENSION) ?: 'png');
-        $in = $fs->getFileStream($key);
         $out = fopen($localPath, 'wb');
 
         if ($out === false) {
@@ -712,16 +670,22 @@ class SessionsService extends Component
      */
     private function _stream(string $key): ?array
     {
-        $fs = $this->_fs();
+        $disk = $this->disk();
 
-        if (!$fs->fileExists($key)) {
+        if (!$disk->fileExists($key)) {
+            return null;
+        }
+
+        $stream = $disk->readStream($key);
+
+        if ($stream === null) {
             return null;
         }
 
         return [
-            'stream' => $fs->getFileStream($key),
+            'stream' => $stream,
             'filename' => basename($key),
-            'fileSize' => $fs->getFileSize($key),
+            'fileSize' => $disk->size($key),
         ];
     }
 
@@ -735,11 +699,11 @@ class SessionsService extends Component
         $stream = fopen($localPath, 'rb');
 
         if ($stream === false) {
-            throw new SessionException(Craft::t('ai-image-editor', 'The result image could not be read back for storage.'));
+            throw new SessionException(t('The result image could not be read back for storage.', category: 'ai-image-editor'));
         }
 
         try {
-            $this->_fs()->writeFileFromStream($key, $stream);
+            $this->disk()->writeStream($key, $stream);
         } finally {
             if (\is_resource($stream)) {
                 fclose($stream);
@@ -753,8 +717,7 @@ class SessionsService extends Component
      */
     private function _localScratchDir(): string
     {
-        $dir = Craft::$app->getPath()->getTempPath() . '/' . self::FS_BASE_DIR . '/' . StringHelper::UUID();
-        FileHelper::createDirectory($dir);
+        $dir = Path::temp(self::FS_BASE_DIR . '/' . Str::uuid()->toString());
 
         return $dir;
     }
@@ -765,7 +728,7 @@ class SessionsService extends Component
     private function _removeLocalDir(string $dir): void
     {
         try {
-            FileHelper::removeDirectory($dir);
+            File::deleteDirectory($dir);
         } catch (Throwable) {
             // Scratch cleanup is best-effort.
         }
@@ -777,11 +740,7 @@ class SessionsService extends Component
      */
     private function _touchSession(EditSession $session): void
     {
-        Craft::$app->getDb()->createCommand()
-            ->update(Table::SESSIONS, [
-                'dateUpdated' => Db::prepareDateForDb(DateTimeHelper::now()),
-            ], ['id' => $session->id])
-            ->execute();
+        EditSessionRecord::query()->whereKey($session->id)->update(['dateUpdated' => now()]);
     }
 
     /**
@@ -799,11 +758,11 @@ class SessionsService extends Component
     private function _breakProviderChain(EditSession $session, int $turnId): void
     {
         /** @var EditTurnRecord|null $record */
-        $record = EditTurnRecord::findOne([
-            'sessionId' => $session->id,
-            'id' => $turnId,
-            'isFinal' => false,
-        ]);
+        $record = EditTurnRecord::query()
+            ->where('sessionId', $session->id)
+            ->whereKey($turnId)
+            ->where('isFinal', false)
+            ->first();
 
         if ($record === null || $record->providerMeta === null) {
             return;
@@ -817,6 +776,6 @@ class SessionsService extends Component
 
         unset($meta['interactionId']);
         $record->providerMeta = $meta === [] ? null : Json::encode($meta);
-        $record->save(false);
+        $record->save();
     }
 }

@@ -31,17 +31,13 @@
         }
     ],
     "require": {
-        "php": "^8.2",
-        "craftcms/cms": "^5.0.0",
+        "php": "^8.5",
+        "craftcms/cms": "^6.0.0-alpha",
         "guzzlehttp/guzzle": "^7.2"
-    },
-    "require-dev": {
-        "craftcms/ecs": "dev-main",
-        "craftcms/phpstan": "dev-main"
     },
     "autoload": {
         "psr-4": {
-          "SpaceCatNinja\\AiImageEditor\\": "src/"
+            "SpaceCatNinja\\AiImageEditor\\": "src/"
         }
     },
     "extra": {
@@ -50,11 +46,9 @@
         "developer": "SPACECATNINJA",
         "developerUrl": "https://www.spacecat.ninja",
         "documentationUrl": "https://github.com/spacecatninja/craft-ai-image-editor/blob/master/README.md",
-        "schemaVersion": "1.0.0",
+        "schemaVersion": "2.0.0",
         "hasCpSettings": false,
-        "hasCpSection": false,
         "changelogUrl": "https://raw.githubusercontent.com/spacecatninja/craft-ai-image-editor/master/CHANGELOG.md",
-        "components": {},
         "class": "SpaceCatNinja\\AiImageEditor\\AiImageEditor"
     }
 }

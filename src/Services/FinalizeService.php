@@ -10,22 +10,26 @@
 
 namespace SpaceCatNinja\AiImageEditor\Services;
 
-use Craft;
-use craft\base\Component;
-use craft\elements\Asset;
-use craft\helpers\Assets as AssetsHelper;
-use craft\helpers\DateTimeHelper;
-use craft\helpers\FileHelper;
-use craft\helpers\StringHelper;
-
-use SpaceCatNinja\AiImageEditor\AiImageEditor;
-use SpaceCatNinja\AiImageEditor\Events\SaveEvent;
-use SpaceCatNinja\AiImageEditor\Exceptions\SessionException;
+use CraftCms\Cms\Asset\AssetsHelper;
+use CraftCms\Cms\Asset\Elements\Asset;
+use CraftCms\Cms\Asset\Validation\AssetRules;
+use CraftCms\Cms\Support\Facades\Assets;
+use CraftCms\Cms\Support\Facades\Elements;
+use CraftCms\Cms\Support\Facades\Folders;
+use CraftCms\Cms\Support\File;
+use Illuminate\Container\Attributes\Singleton;
+use Illuminate\Support\Facades\Log;
 use SpaceCatNinja\AiImageEditor\Data\EditSession;
 use SpaceCatNinja\AiImageEditor\Data\EditTurn;
-
+use SpaceCatNinja\AiImageEditor\Events\ImageSaved;
+use SpaceCatNinja\AiImageEditor\Events\SavingImage;
+use SpaceCatNinja\AiImageEditor\Exceptions\EditDriverException;
+use SpaceCatNinja\AiImageEditor\Exceptions\SessionException;
+use SpaceCatNinja\AiImageEditor\Settings;
+use SpaceCatNinja\AiImageEditor\Support\Strings;
 use Throwable;
-use yii\base\InvalidConfigException;
+
+use function CraftCms\Cms\t;
 
 /**
  * The Finalize service turns an accepted edit session into a permanent asset.
@@ -38,34 +42,28 @@ use yii\base\InvalidConfigException;
  * Note that the high resolution step is a generative regeneration, not a pixel
  * preserving upscale, which is why the comparison step exists.
  *
- * An instance of the service is available via `AiImageEditor::$plugin->getFinalize()`.
+ * Resolve it from the container: `app(FinalizeService::class)`.
  *
  * @author André Elvan
  * @since 1.0.0
  */
-class FinalizeService extends Component
+#[Singleton]
+class FinalizeService
 {
     // Const Properties
     // =========================================================================
-
-    /**
-     * @event SaveEvent The event triggered before a result is saved as an
-     * asset. Handlers may set fields on the asset or cancel the save.
-     * @since 1.0.0
-     */
-    public const EVENT_BEFORE_SAVE = 'beforeSave';
-
-    /**
-     * @event SaveEvent The event triggered after a result is saved as an asset.
-     * @since 1.0.0
-     */
-    public const EVENT_AFTER_SAVE = 'afterSave';
 
     /**
      * @var string The default prompt used for the finalize regeneration. Can
      * be overridden with the `finalizePrompt` setting.
      */
     public const DEFAULT_FINALIZE_PROMPT = 'Reproduce this exact image faithfully, at maximum resolution and quality. Do not change, add or remove anything in the image.';
+
+    public function __construct(
+        private readonly SessionsService $sessions,
+        private readonly DriversService $drivers,
+    ) {
+    }
 
     // Public Methods
     // =========================================================================
@@ -79,22 +77,21 @@ class FinalizeService extends Component
      * @param string|null $outputFormat requested output format, forwarded so the candidate keeps the chosen format
      * @return array{result: \SpaceCatNinja\AiImageEditor\Data\EditResult, turn: EditTurn|null}
      * @throws SessionException if the session has no accepted turns, or its working image is gone
-     * @throws InvalidConfigException if the session's driver is not registered
+     * @throws EditDriverException if the session's driver is not registered
      *
      * @author André Elvan
      * @since 1.0.0
      */
     public function createFinalCandidate(EditSession $session, ?string $resolution = null, ?string $outputFormat = null): array
     {
-        $sessions = AiImageEditor::$plugin?->getSessions();
+        $sessions = $this->sessions;
 
         if ($sessions->getLatestTurn($session) === null) {
-            throw new SessionException(Craft::t('ai-image-editor', 'There are no edits to finalize in this session.'));
+            throw new SessionException(t('There are no edits to finalize in this session.', category: 'ai-image-editor'));
         }
 
-        $settings = AiImageEditor::$plugin?->getSettings();
-        $driver = AiImageEditor::$plugin?->getDrivers()->getDriver($session->driverHandle);
-        $prompt = $settings->finalizePrompt ?? self::DEFAULT_FINALIZE_PROMPT;
+        $driver = $this->drivers->getDriver($session->driverHandle);
+        $prompt = app(Settings::class)->finalizePrompt ?? self::DEFAULT_FINALIZE_PROMPT;
         $finalResolution = $resolution ?? $driver->getFinalResolution($session->model);
 
         return $sessions->runTurn(
@@ -132,7 +129,7 @@ class FinalizeService extends Component
      */
     public function saveResult(EditSession $session, bool $useWorkingResolution = false, bool $replaceOriginal = false): Asset
     {
-        $sessions = AiImageEditor::$plugin?->getSessions();
+        $sessions = $this->sessions;
         $turn = $sessions->getLatestTurn($session, !$useWorkingResolution);
 
         if ($turn === null && !$useWorkingResolution) {
@@ -140,17 +137,17 @@ class FinalizeService extends Component
         }
 
         if ($turn === null) {
-            throw new SessionException(Craft::t('ai-image-editor', 'There is no result to save in this session.'));
+            throw new SessionException(t('There is no result to save in this session.', category: 'ai-image-editor'));
         }
 
         $resultPath = $sessions->getTurnImageLocalPath($session, $turn);
 
         if ($resultPath === null) {
-            throw new SessionException(Craft::t('ai-image-editor', 'The result image no longer exists.'));
+            throw new SessionException(t('The result image no longer exists.', category: 'ai-image-editor'));
         }
 
         if ($session->isGeneration() && $replaceOriginal) {
-            throw new SessionException(Craft::t('ai-image-editor', 'A generated image has no original to replace.'));
+            throw new SessionException(t('A generated image has no original to replace.', category: 'ai-image-editor'));
         }
 
         $extension = pathinfo($resultPath, PATHINFO_EXTENSION) ?: 'png';
@@ -161,14 +158,14 @@ class FinalizeService extends Component
         $tempPath = AssetsHelper::tempFilePath($extension);
 
         if (!copy($resultPath, $tempPath)) {
-            throw new SessionException(Craft::t('ai-image-editor', 'The result image could not be prepared for saving.'));
+            throw new SessionException(t('The result image could not be prepared for saving.', category: 'ai-image-editor'));
         }
 
         if ($session->isGeneration()) {
-            $folder = Craft::$app->getAssets()->getFolderById((int)$session->targetFolderId);
+            $folder = Folders::getFolderById((int)$session->targetFolderId);
 
             if ($folder === null) {
-                throw new SessionException(Craft::t('ai-image-editor', 'The target folder for this session no longer exists.'));
+                throw new SessionException(t('The target folder for this session no longer exists.', category: 'ai-image-editor'));
             }
 
             $filename = $this->_generateGenerationFilename($session, $extension, $resultPath);
@@ -176,13 +173,13 @@ class FinalizeService extends Component
             $sourceAsset = $session->getSourceAsset();
 
             if ($sourceAsset === null) {
-                throw new SessionException(Craft::t('ai-image-editor', 'The source asset for this session no longer exists.'));
+                throw new SessionException(t('The source asset for this session no longer exists.', category: 'ai-image-editor'));
             }
 
             try {
                 $folder = $sourceAsset->getFolder();
-            } catch (InvalidConfigException $invalidConfigException) {
-                throw new SessionException(Craft::t('ai-image-editor', 'The source asset\'s folder could not be resolved.'), 0, $invalidConfigException);
+            } catch (Throwable $throwable) {
+                throw new SessionException(t('The source asset\'s folder could not be resolved.', category: 'ai-image-editor'), 0, $throwable);
             }
 
             $filename = $this->_generateFilename($sourceAsset, $extension);
@@ -195,52 +192,52 @@ class FinalizeService extends Component
                 $this->_fireBeforeSave($session, $sourceAsset, true);
 
                 try {
-                    Craft::$app->getAssets()->replaceAssetFile($sourceAsset, $tempPath, $filename);
+                    Assets::replaceAssetFile($sourceAsset, $tempPath, $filename);
                 } catch (Throwable $throwable) {
-                    Craft::error("Could not replace the original asset file: {$throwable->getMessage()}", __METHOD__);
+                    Log::error("Could not replace the original asset file: {$throwable->getMessage()}");
 
-                    throw new SessionException(Craft::t('ai-image-editor', 'The original image could not be replaced.'), 0, $throwable);
+                    throw new SessionException(t('The original image could not be replaced.', category: 'ai-image-editor'), 0, $throwable);
                 }
 
                 $sessions->markFinalized($session, $sourceAsset->id);
                 $this->_fireAfterSave($session, $sourceAsset, true);
 
-                FileHelper::unlink($resultPath);
+                File::delete($resultPath);
 
                 return $sourceAsset;
             }
         }
 
         $asset = new Asset();
+        $asset->ruleset->useScenario(AssetRules::SCENARIO_CREATE);
         $asset->tempFilePath = $tempPath;
-        $asset->filename = $filename;
+        $asset->setFilename($filename);
         $asset->newFolderId = $folder->id;
         $asset->setVolumeId($folder->volumeId);
         $asset->avoidFilenameConflicts = true;
-        $asset->setScenario(Asset::SCENARIO_CREATE);
 
         $this->_applyDetectedFocalPoint($session, $asset, $resultPath);
         $this->_applyAiGeneratedFlag($asset);
         $this->_fireBeforeSave($session, $asset, false);
 
         try {
-            $saved = Craft::$app->getElements()->saveElement($asset);
+            $saved = Elements::saveElement($asset);
         } catch (Throwable $throwable) {
-            Craft::error("Could not save the edited image as an asset: {$throwable->getMessage()}", __METHOD__);
+            Log::error("Could not save the edited image as an asset: {$throwable->getMessage()}");
 
-            throw new SessionException(Craft::t('ai-image-editor', 'The edited image could not be saved as an asset.'), 0, $throwable);
+            throw new SessionException(t('The edited image could not be saved as an asset.', category: 'ai-image-editor'), 0, $throwable);
         }
 
         if (!$saved) {
-            Craft::error('Could not save the edited image as an asset: ' . implode(', ', $asset->getFirstErrors()), __METHOD__);
+            Log::error('Could not save the edited image as an asset: ' . implode(', ', $asset->getFirstErrors()));
 
-            throw new SessionException(Craft::t('ai-image-editor', 'The edited image could not be saved as an asset.'));
+            throw new SessionException(t('The edited image could not be saved as an asset.', category: 'ai-image-editor'));
         }
 
         $sessions->markFinalized($session, $asset->id);
         $this->_fireAfterSave($session, $asset, false);
 
-        FileHelper::unlink($resultPath);
+        File::delete($resultPath);
 
         return $asset;
     }
@@ -262,15 +259,10 @@ class FinalizeService extends Component
      */
     private function _fireBeforeSave(EditSession $session, Asset $asset, bool $replace): void
     {
-        if (!$this->hasEventHandlers(self::EVENT_BEFORE_SAVE)) {
-            return;
-        }
-
-        $event = new SaveEvent(['session' => $session, 'asset' => $asset, 'replace' => $replace]);
-        $this->trigger(self::EVENT_BEFORE_SAVE, $event);
+        event($event = new SavingImage($session, $asset, $replace));
 
         if (!$event->isValid) {
-            throw new SessionException(Craft::t('ai-image-editor', 'The save was cancelled.'));
+            throw new SessionException(t('The save was cancelled.', category: 'ai-image-editor'));
         }
     }
 
@@ -286,15 +278,7 @@ class FinalizeService extends Component
      */
     private function _fireAfterSave(EditSession $session, Asset $asset, bool $replace): void
     {
-        if (!$this->hasEventHandlers(self::EVENT_AFTER_SAVE)) {
-            return;
-        }
-
-        $this->trigger(self::EVENT_AFTER_SAVE, new SaveEvent([
-            'session' => $session,
-            'asset' => $asset,
-            'replace' => $replace,
-        ]));
+        event(new ImageSaved($session, $asset, $replace));
     }
 
     /**
@@ -305,18 +289,16 @@ class FinalizeService extends Component
      */
     private function _applyDetectedFocalPoint(EditSession $session, Asset $asset, string $resultPath): void
     {
-        $settings = AiImageEditor::$plugin?->getSettings();
-
-        if (!($settings->autoFocalPoint ?? false) || $asset->getHasFocalPoint()) {
+        if (!app(Settings::class)->autoFocalPoint || $asset->getHasFocalPoint()) {
             return;
         }
 
         try {
-            $focalPoint = AiImageEditor::$plugin?->getDrivers()
+            $focalPoint = $this->drivers
                 ->getAnalysisDriver($session->driverHandle)
                 ->detectFocalPoint($resultPath);
         } catch (Throwable $throwable) {
-            Craft::warning("Focal point detection failed: {$throwable->getMessage()}", __METHOD__);
+            Log::warning("Focal point detection failed: {$throwable->getMessage()}");
 
             return;
         }
@@ -335,7 +317,7 @@ class FinalizeService extends Component
      */
     private function _applyAiGeneratedFlag(Asset $asset): void
     {
-        $handle = AiImageEditor::$plugin?->getSettings()?->aiGeneratedField;
+        $handle = app(Settings::class)->aiGeneratedField;
 
         if ($handle === null || $handle === '') {
             return;
@@ -344,7 +326,7 @@ class FinalizeService extends Component
         $fieldLayout = $asset->getFieldLayout();
 
         if ($fieldLayout === null || $fieldLayout->getFieldByHandle($handle) === null) {
-            Craft::warning("The configured aiGeneratedField \"{$handle}\" is not in the asset's field layout.", __METHOD__);
+            Log::warning("The configured aiGeneratedField \"{$handle}\" is not in the asset's field layout.");
 
             return;
         }
@@ -366,7 +348,7 @@ class FinalizeService extends Component
         // our timestamp, not a short user-added counter like `-edit-3`.
         $basename = preg_replace('/-(?:ai-)?edit-\d{8,}$/', '', $basename) ?? $basename;
 
-        return sprintf('%s-edit-%s.%s', $basename, DateTimeHelper::now()->format('YmdHis'), $extension);
+        return sprintf('%s-edit-%s.%s', $basename, now()->format('YmdHis'), $extension);
     }
 
     /**
@@ -377,12 +359,11 @@ class FinalizeService extends Component
      */
     private function _generateGenerationFilename(EditSession $session, string $extension, string $resultPath): string
     {
-        $settings = AiImageEditor::$plugin?->getSettings();
         $slug = '';
 
-        if ($settings->descriptiveFilenames ?? false) {
+        if (app(Settings::class)->descriptiveFilenames) {
             try {
-                $description = AiImageEditor::$plugin?->getDrivers()
+                $description = $this->drivers
                     ->getAnalysisDriver($session->driverHandle)
                     ->describeImage($resultPath);
             } catch (Throwable) {
@@ -390,18 +371,18 @@ class FinalizeService extends Component
             }
 
             if ($description !== null) {
-                $slug = FileHelper::sanitizeFilename(StringHelper::toKebabCase($description));
+                $slug = File::sanitizeFilename(Strings::toKebabCase($description));
             }
         }
 
         if ($slug === '') {
-            $turns = AiImageEditor::$plugin?->getSessions()->getTurns($session, false) ?? [];
+            $turns = $this->sessions->getTurns($session, false);
             $prompt = $turns !== [] ? $turns[0]->prompt : '';
-            $slug = FileHelper::sanitizeFilename(StringHelper::toKebabCase(StringHelper::safeTruncate($prompt, 40)));
+            $slug = File::sanitizeFilename(Strings::toKebabCase(Strings::safeTruncate($prompt, 40)));
         }
 
         if ($slug === '') {
-            return sprintf('ai-image-%s.%s', DateTimeHelper::now()->format('YmdHis'), $extension);
+            return sprintf('ai-image-%s.%s', now()->format('YmdHis'), $extension);
         }
 
         return sprintf('%s.%s', $slug, $extension);

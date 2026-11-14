@@ -10,171 +10,124 @@
 
 namespace SpaceCatNinja\AiImageEditor\Http\Controllers;
 
-use Craft;
-use craft\elements\Asset;
-use craft\helpers\FileHelper;
-use craft\helpers\UrlHelper;
-use craft\web\Controller;
-
+use CraftCms\Cms\Support\Facades\Assets;
+use CraftCms\Cms\Support\Facades\Folders;
+use CraftCms\Cms\Support\File;
+use CraftCms\Cms\Support\Url;
+use CraftCms\Cms\User\Elements\User;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use SpaceCatNinja\AiImageEditor\AiImageEditor;
-use SpaceCatNinja\AiImageEditor\Enums\SessionStatus;
-use SpaceCatNinja\AiImageEditor\Exceptions\SessionException;
 use SpaceCatNinja\AiImageEditor\Data\EditSession;
 use SpaceCatNinja\AiImageEditor\Data\EditTurn;
-
+use SpaceCatNinja\AiImageEditor\Enums\SessionStatus;
+use SpaceCatNinja\AiImageEditor\Exceptions\SessionException;
+use SpaceCatNinja\AiImageEditor\Services\DriversService;
+use SpaceCatNinja\AiImageEditor\Services\FinalizeService;
+use SpaceCatNinja\AiImageEditor\Services\SessionsService;
+use SpaceCatNinja\AiImageEditor\Settings;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
-use yii\web\BadRequestHttpException;
-use yii\web\ForbiddenHttpException;
-use yii\web\NotFoundHttpException;
-use yii\web\Response;
+
+use function CraftCms\Cms\currentUserElement;
+use function CraftCms\Cms\t;
 
 /**
  * Handles the editor's session lifecycle: create, run turns, fetch state,
  * finalize, confirm, discard, and stream turn preview images.
  *
- * All actions are control panel AJAX endpoints. Edit turns run the provider
+ * All actions are control panel JSON endpoints, routed in `routes/cp.php`, so
+ * they require a logged-in user with control panel access. Edit turns run the provider
  * call synchronously, but the response contract is designed so the backend
  * can move to queue-plus-polling later without changing the frontend.
  *
  * @author André Elvan
  * @since 1.0.0
  */
-class SessionsController extends Controller
+class SessionsController
 {
-    // Const Properties
-    // =========================================================================
-
-    /**
-     * @var string The permission required to edit existing images with AI.
-     * @since 1.0.0
-     */
-    public const PERMISSION_EDIT = 'ai-image-editor:edit';
-
-    /**
-     * @var string The permission required to generate new images with AI.
-     * @since 1.0.0
-     */
-    public const PERMISSION_GENERATE = 'ai-image-editor:generate';
-
-    // Protected Properties
-    // =========================================================================
-
-    /**
-     * @inheritdoc
-     */
-    protected array|bool|int $allowAnonymous = false;
+    public function __construct(
+        private readonly SessionsService $sessions,
+        private readonly FinalizeService $finalize,
+        private readonly DriversService $drivers,
+    ) {
+    }
 
     // Public Methods
     // =========================================================================
 
     /**
-     * @inheritdoc
-     */
-    public function beforeAction($action): bool
-    {
-        if (!parent::beforeAction($action)) {
-            return false;
-        }
-
-        $this->requireCpRequest();
-
-        return true;
-    }
-
-    /**
      * Creates a new session: an edit session when an asset ID is posted, or a
      * generation session when a target folder ID is posted instead.
      *
-     * @return Response
-     * @throws BadRequestHttpException if neither an asset ID nor a folder ID was posted
-     * @throws NotFoundHttpException if the asset or folder doesn't exist
-     * @throws ForbiddenHttpException if the user can't view the asset, or can't save assets in the folder's volume
+     * Responds with a 400 if neither an asset ID nor a folder ID was posted, a
+     * 404 if the asset or folder doesn't exist, and a 403 if the user can't view
+     * the asset, or can't save assets in the folder's volume.
      *
      * @author André Elvan
      * @since 1.0.0
      */
-    public function actionCreate(): Response
+    public function create(Request $request): JsonResponse
     {
-        $this->requirePostRequest();
-        $this->requireAcceptsJson();
+        $assetId = $request->integer('assetId');
+        $folderId = $request->integer('folderId');
 
-        $assetId = (int)$this->request->getBodyParam('assetId', 0);
-        $folderId = (int)$this->request->getBodyParam('folderId', 0);
+        abort_if($assetId === 0 && $folderId === 0, 400, 'Either an asset ID or a folder ID is required.');
 
-        if ($assetId === 0 && $folderId === 0) {
-            throw new BadRequestHttpException('Either an asset ID or a folder ID is required.');
-        }
-
-        $currentUser = Craft::$app->getUser()->getIdentity();
-
-        if (!$currentUser) {
-            throw new ForbiddenHttpException('You must be logged in.');
-        }
-
-        $plugin = AiImageEditor::$plugin;
-        $settings = $plugin->getSettings();
+        $currentUser = $this->currentUser();
 
         try {
-            $driver = $plugin->getDrivers()->getDriver($settings->driver);
+            $driver = $this->drivers->getDriver(app(Settings::class)->driver);
         } catch (Throwable $throwable) {
-            Craft::error("Could not create edit driver: {$throwable->getMessage()}", __METHOD__);
+            Log::error("Could not create edit driver: {$throwable->getMessage()}");
 
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
                 'code' => 'not-configured',
-                'message' => Craft::t('ai-image-editor', 'The configured edit driver could not be created. Check `config/ai-image-editor.php`.'),
+                'message' => t('The configured edit driver could not be created. Check `config/ai-image-editor.php`.', category: 'ai-image-editor'),
             ]);
         }
 
         if (!$driver->isConfigured()) {
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
                 'code' => 'not-configured',
-                'message' => Craft::t('ai-image-editor', '{driver} is not configured. Add your API key in `config/ai-image-editor.php`.', ['driver' => $driver->getName()]),
+                'message' => t('{driver} is not configured. Add your API key in `config/ai-image-editor.php`.', ['driver' => $driver->getName()], 'ai-image-editor'),
             ]);
         }
 
         if ($assetId !== 0) {
-            $this->requirePermission(self::PERMISSION_EDIT);
+            Gate::authorize(AiImageEditor::PERMISSION_EDIT);
 
-            $asset = Craft::$app->getAssets()->getAssetById($assetId);
+            $asset = Assets::getAssetById($assetId);
 
-            if (!$asset) {
-                throw new NotFoundHttpException('Asset not found.');
-            }
-
-            if (!Craft::$app->getElements()->canView($asset, $currentUser)) {
-                throw new ForbiddenHttpException('You don\'t have permission to view this asset.');
-            }
+            abort_if($asset === null, 404, 'Asset not found.');
+            abort_unless(Gate::check('view', $asset), 403, 'You don\'t have permission to view this asset.');
 
             try {
-                $session = $plugin->getSessions()->createSession($asset, $currentUser);
+                $session = $this->sessions->createSession($asset, $currentUser);
             } catch (SessionException $sessionException) {
-                return $this->asJson([
+                return response()->json([
                     'success' => false,
                     'code' => 'invalid-asset',
                     'message' => $sessionException->getMessage(),
                 ]);
             }
         } else {
-            $this->requirePermission(self::PERMISSION_GENERATE);
+            Gate::authorize(AiImageEditor::PERMISSION_GENERATE);
 
-            $folder = Craft::$app->getAssets()->getFolderById($folderId);
+            $folder = Folders::getFolderById($folderId);
 
-            if (!$folder) {
-                throw new NotFoundHttpException('Folder not found.');
-            }
+            abort_if($folder === null, 404, 'Folder not found.');
+            abort_unless(Gate::check("saveAssets:{$folder->getVolume()->uid}"), 403, 'You don\'t have permission to save assets in this volume.');
 
-            $volume = $folder->getVolume();
-
-            if (!$currentUser->can("saveAssets:{$volume->uid}")) {
-                throw new ForbiddenHttpException('You don\'t have permission to save assets in this volume.');
-            }
-
-            $session = $plugin->getSessions()->createGenerationSession($currentUser, $folderId);
+            $session = $this->sessions->createGenerationSession($currentUser, $folderId);
         }
 
-        return $this->asJson([
+        return response()->json([
             'success' => true,
             'session' => $this->_sessionPayload($session),
         ]);
@@ -183,48 +136,45 @@ class SessionsController extends Controller
     /**
      * Runs one edit turn.
      *
-     * @return Response
-     * @throws BadRequestHttpException if required params are missing
-     * @throws NotFoundHttpException if the session doesn't exist
-     * @throws ForbiddenHttpException if the session belongs to another user
-     *
      * @author André Elvan
      * @since 1.0.0
      */
-    public function actionTurn(): Response
+    public function turn(Request $request): JsonResponse
     {
-        $this->requirePostRequest();
-        $this->requireAcceptsJson();
+        $request->validate([
+            'sessionId' => ['required', 'integer'],
+            'prompt' => ['present', 'nullable', 'string'],
+        ]);
 
-        $session = $this->_requireSession((int)$this->request->getRequiredBodyParam('sessionId'));
+        $session = $this->_requireSession($request->integer('sessionId'));
 
         if (($rateLimited = $this->_checkRateLimit()) !== null) {
             return $rateLimited;
         }
 
-        $prompt = trim((string)$this->request->getRequiredBodyParam('prompt'));
-        $preserveContent = (bool)$this->request->getBodyParam('precise', true);
-        $aspectRatio = $this->_validAspectRatio($session, (string)$this->request->getBodyParam('aspectRatio', ''));
-        $outputFormat = $this->_validOutputFormat($session, (string)$this->request->getBodyParam('outputFormat', ''));
+        $prompt = trim($request->string('prompt')->toString());
+        $preserveContent = $request->boolean('precise', true);
+        $aspectRatio = $this->_validAspectRatio($session, $request->string('aspectRatio')->toString());
+        $outputFormat = $this->_validOutputFormat($session, $request->string('outputFormat')->toString());
 
-        $this->_maybeUpdateSessionModel($session, trim((string)$this->request->getBodyParam('model', '')));
+        $this->_maybeUpdateSessionModel($session, trim($request->string('model')->toString()));
 
         if ($session->status !== SessionStatus::Active) {
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
-                'message' => Craft::t('ai-image-editor', 'This session is no longer active.'),
+                'message' => t('This session is no longer active.', category: 'ai-image-editor'),
             ]);
         }
 
         if ($prompt === '') {
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
-                'message' => Craft::t('ai-image-editor', 'Please enter an instruction.'),
+                'message' => t('Please enter an instruction.', category: 'ai-image-editor'),
             ]);
         }
 
         try {
-            ['result' => $result, 'turn' => $turn] = AiImageEditor::$plugin->getSessions()->runTurn(
+            ['result' => $result, 'turn' => $turn] = $this->sessions->runTurn(
                 $session,
                 $prompt,
                 preserveContent: $preserveContent,
@@ -232,18 +182,18 @@ class SessionsController extends Controller
                 outputFormat: $outputFormat,
             );
         } catch (Throwable $throwable) {
-            Craft::error("Edit turn failed: {$throwable->getMessage()}", __METHOD__);
+            Log::error("Edit turn failed: {$throwable->getMessage()}");
 
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
                 'message' => $throwable instanceof SessionException
                     ? $throwable->getMessage()
-                    : Craft::t('ai-image-editor', 'The edit could not be performed. Please try again.'),
+                    : t('The edit could not be performed. Please try again.', category: 'ai-image-editor'),
             ]);
         }
 
         if (!$result->success || $turn === null) {
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
                 'refusal' => $result->isRefusal,
                 'message' => $result->errorMessage,
@@ -251,7 +201,7 @@ class SessionsController extends Controller
             ]);
         }
 
-        return $this->asJson([
+        return response()->json([
             'success' => true,
             'turn' => $this->_turnPayload($session, $turn),
         ]);
@@ -260,20 +210,16 @@ class SessionsController extends Controller
     /**
      * Returns a session and its turn history, for reloading UI state.
      *
-     * @return Response
-     * @throws NotFoundHttpException if the session doesn't exist
-     * @throws ForbiddenHttpException if the session belongs to another user
-     *
      * @author André Elvan
      * @since 1.0.0
      */
-    public function actionGet(): Response
+    public function get(Request $request): JsonResponse
     {
-        $this->requireAcceptsJson();
+        $request->validate(['sessionId' => ['required', 'integer']]);
 
-        $session = $this->_requireSession((int)$this->request->getRequiredQueryParam('sessionId'));
+        $session = $this->_requireSession($request->integer('sessionId'));
 
-        return $this->asJson([
+        return response()->json([
             'success' => true,
             'session' => $this->_sessionPayload($session),
         ]);
@@ -284,41 +230,37 @@ class SessionsController extends Controller
      * made after it, and returns the refreshed session so the UI can rehydrate
      * its history strip.
      *
-     * @return Response
-     * @throws NotFoundHttpException if the session doesn't exist
-     * @throws ForbiddenHttpException if the session belongs to another user
-     * @throws BadRequestHttpException if the turn doesn't belong to the session or is a finalize candidate
+     * Responds with a 400 if the turn doesn't belong to the session or is a
+     * finalize candidate.
      *
      * @author André Elvan
      * @since 1.0.0
      */
-    public function actionRevert(): Response
+    public function revert(Request $request): JsonResponse
     {
-        $this->requirePostRequest();
-        $this->requireAcceptsJson();
+        $request->validate([
+            'sessionId' => ['required', 'integer'],
+            'turnId' => ['required'],
+        ]);
 
-        $session = $this->_requireSession((int)$this->request->getRequiredBodyParam('sessionId'));
-        $turnId = (string)$this->request->getRequiredBodyParam('turnId');
+        $session = $this->_requireSession($request->integer('sessionId'));
+        $turnId = $request->string('turnId')->toString();
 
         if ($turnId === 'source') {
             // Revert to the original, discarding every edit and starting over.
-            if ($session->isGeneration()) {
-                throw new BadRequestHttpException('A generated image has no original to revert to.');
-            }
+            abort_if($session->isGeneration(), 400, 'A generated image has no original to revert to.');
 
-            AiImageEditor::$plugin->getSessions()->revertToSource($session);
+            $this->sessions->revertToSource($session);
         } else {
             $turn = $this->_getSessionTurn($session, (int)$turnId);
 
             // Finalize candidates aren't part of the working history; you revert to a draft.
-            if ($turn->isFinal) {
-                throw new BadRequestHttpException('Cannot revert to a finalize candidate.');
-            }
+            abort_if($turn->isFinal, 400, 'Cannot revert to a finalize candidate.');
 
-            AiImageEditor::$plugin->getSessions()->revertToTurn($session, (int)$turn->id);
+            $this->sessions->revertToTurn($session, (int)$turn->id);
         }
 
-        return $this->asJson([
+        return response()->json([
             'success' => true,
             'session' => $this->_sessionPayload($session),
         ]);
@@ -328,44 +270,39 @@ class SessionsController extends Controller
      * Generates the finalize candidate: the last accepted result regenerated
      * at the configured final resolution, for before/after comparison.
      *
-     * @return Response
-     * @throws NotFoundHttpException if the session doesn't exist
-     * @throws ForbiddenHttpException if the session belongs to another user
-     *
      * @author André Elvan
      * @since 1.0.0
      */
-    public function actionFinalize(): Response
+    public function finalize(Request $request): JsonResponse
     {
-        $this->requirePostRequest();
-        $this->requireAcceptsJson();
+        $request->validate(['sessionId' => ['required', 'integer']]);
 
-        $session = $this->_requireSession((int)$this->request->getRequiredBodyParam('sessionId'));
+        $session = $this->_requireSession($request->integer('sessionId'));
 
         if (($rateLimited = $this->_checkRateLimit()) !== null) {
             return $rateLimited;
         }
 
-        $this->_maybeUpdateSessionModel($session, trim((string)$this->request->getBodyParam('model', '')));
-        $resolution = $this->_validResolution($session, trim((string)$this->request->getBodyParam('finalResolution', '')));
-        $outputFormat = $this->_validOutputFormat($session, (string)$this->request->getBodyParam('outputFormat', ''));
+        $this->_maybeUpdateSessionModel($session, trim($request->string('model')->toString()));
+        $resolution = $this->_validResolution($session, trim($request->string('finalResolution')->toString()));
+        $outputFormat = $this->_validOutputFormat($session, $request->string('outputFormat')->toString());
 
         try {
-            ['result' => $result, 'turn' => $turn] = AiImageEditor::$plugin->getFinalize()->createFinalCandidate($session, $resolution, $outputFormat);
+            ['result' => $result, 'turn' => $turn] = $this->finalize->createFinalCandidate($session, $resolution, $outputFormat);
         } catch (Throwable $throwable) {
-            Craft::error("Finalize failed: {$throwable->getMessage()}", __METHOD__);
+            Log::error("Finalize failed: {$throwable->getMessage()}");
 
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
                 'canFallback' => true,
                 'message' => $throwable instanceof SessionException
                     ? $throwable->getMessage()
-                    : Craft::t('ai-image-editor', 'The high resolution version could not be generated.'),
+                    : t('The high resolution version could not be generated.', category: 'ai-image-editor'),
             ]);
         }
 
         if (!$result->success || $turn === null) {
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
                 'canFallback' => true,
                 'refusal' => $result->isRefusal,
@@ -373,9 +310,9 @@ class SessionsController extends Controller
             ]);
         }
 
-        $before = AiImageEditor::$plugin->getSessions()->getLatestTurn($session);
+        $before = $this->sessions->getLatestTurn($session);
 
-        return $this->asJson([
+        return response()->json([
             'success' => true,
             'before' => $before !== null ? $this->_turnPayload($session, $before) : null,
             'after' => $this->_turnPayload($session, $turn),
@@ -389,78 +326,77 @@ class SessionsController extends Controller
      * instead of the finalize candidate, the fallback when the high
      * resolution regeneration failed or drifted.
      *
-     * @return Response
-     * @throws NotFoundHttpException if the session doesn't exist
-     * @throws ForbiddenHttpException if the session belongs to another user, or the user lacks the volume permission for the chosen save mode
+     * Responds with a 403 if the user lacks the volume permission for the
+     * chosen save mode.
      *
      * @author André Elvan
      * @since 1.0.0
      */
-    public function actionConfirm(): Response
+    public function confirm(Request $request): JsonResponse
     {
-        $this->requirePostRequest();
-        $this->requireAcceptsJson();
+        $request->validate(['sessionId' => ['required', 'integer']]);
 
-        $session = $this->_requireSession((int)$this->request->getRequiredBodyParam('sessionId'));
-        $useWorkingResolution = (bool)$this->request->getBodyParam('useWorkingResolution', false);
-        $replaceOriginal = (bool)$this->request->getBodyParam('replaceOriginal', false);
+        $session = $this->_requireSession($request->integer('sessionId'));
+        $useWorkingResolution = $request->boolean('useWorkingResolution');
+        $replaceOriginal = $request->boolean('replaceOriginal');
 
         if ($session->isGeneration() && $replaceOriginal) {
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
-                'message' => Craft::t('ai-image-editor', 'A generated image has no original to replace.'),
+                'message' => t('A generated image has no original to replace.', category: 'ai-image-editor'),
             ]);
         }
 
         $sourceAsset = $session->getSourceAsset();
-        $currentUser = Craft::$app->getUser()->getIdentity();
+        $currentUser = $this->currentUser();
 
         // An edit session whose source asset was deleted has no volume to check
         // against, so reject it here rather than letting the permission checks
         // below fall through to the save.
         if (!$session->isGeneration() && $sourceAsset === null) {
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
-                'message' => Craft::t('ai-image-editor', 'The original asset for this session no longer exists.'),
+                'message' => t('The original asset for this session no longer exists.', category: 'ai-image-editor'),
             ]);
         }
 
-        if ($session->isGeneration() && $currentUser !== null) {
-            $folder = Craft::$app->getAssets()->getFolderById((int)$session->targetFolderId);
+        if ($session->isGeneration()) {
+            $folder = Folders::getFolderById((int)$session->targetFolderId);
 
-            if ($folder !== null && !$currentUser->can("saveAssets:{$folder->getVolume()->uid}")) {
-                throw new ForbiddenHttpException('You don\'t have permission to save assets in this volume.');
-            }
-        } elseif ($sourceAsset !== null && $currentUser !== null) {
+            abort_if(
+                $folder !== null && !Gate::check("saveAssets:{$folder->getVolume()->uid}"),
+                403,
+                'You don\'t have permission to save assets in this volume.',
+            );
+        } elseif ($sourceAsset !== null) {
             $volume = $sourceAsset->getVolume();
 
             if ($replaceOriginal) {
-                if (!$currentUser->can("replaceFiles:{$volume->uid}")) {
-                    throw new ForbiddenHttpException('You don\'t have permission to replace files in this volume.');
-                }
-
-                if ((int)$sourceAsset->uploaderId !== (int)$currentUser->id && !$currentUser->can("replacePeerFiles:{$volume->uid}")) {
-                    throw new ForbiddenHttpException('You don\'t have permission to replace files uploaded by other users.');
-                }
-            } elseif (!$currentUser->can("saveAssets:{$volume->uid}")) {
-                throw new ForbiddenHttpException('You don\'t have permission to save assets in this volume.');
+                abort_unless(Gate::check("replaceFiles:{$volume->uid}"), 403, 'You don\'t have permission to replace files in this volume.');
+                abort_if(
+                    (int)$sourceAsset->uploaderId !== (int)$currentUser->id && !Gate::check("replacePeerFiles:{$volume->uid}"),
+                    403,
+                    'You don\'t have permission to replace files uploaded by other users.',
+                );
+            } else {
+                abort_unless(Gate::check("saveAssets:{$volume->uid}"), 403, 'You don\'t have permission to save assets in this volume.');
             }
         }
 
         try {
-            $asset = AiImageEditor::$plugin->getFinalize()->saveResult(
+            $asset = $this->finalize->saveResult(
                 $session,
                 useWorkingResolution: $useWorkingResolution,
                 replaceOriginal: $replaceOriginal,
             );
         } catch (SessionException $sessionException) {
-            return $this->asJson([
+            return response()->json([
                 'success' => false,
                 'message' => $sessionException->getMessage(),
             ]);
         }
 
-        return $this->asJson([
+        return response()->json([
             'success' => true,
             'replaced' => $replaceOriginal,
             'asset' => [
@@ -474,67 +410,67 @@ class SessionsController extends Controller
     /**
      * Discards a session, deleting its data and temporary files.
      *
-     * @return Response
-     * @throws NotFoundHttpException if the session doesn't exist
-     * @throws ForbiddenHttpException if the session belongs to another user
-     *
      * @author André Elvan
      * @since 1.0.0
      */
-    public function actionDiscard(): Response
+    public function discard(Request $request): JsonResponse
     {
-        $this->requirePostRequest();
-        $this->requireAcceptsJson();
+        $request->validate(['sessionId' => ['required', 'integer']]);
 
-        $session = $this->_requireSession((int)$this->request->getRequiredBodyParam('sessionId'));
-        AiImageEditor::$plugin->getSessions()->discardSession($session);
+        $session = $this->_requireSession($request->integer('sessionId'));
+        $this->sessions->discardSession($session);
 
-        return $this->asSuccess();
+        return response()->json(['success' => true]);
     }
 
     /**
      * Streams a turn's result image, or the session's source image when
      * `turnId` is `source`.
      *
-     * @return Response
-     * @throws BadRequestHttpException if the turn doesn't belong to the session
-     * @throws NotFoundHttpException if the session, turn or image file doesn't exist
-     * @throws ForbiddenHttpException if the session belongs to another user
+     * Responds with a 400 if the turn doesn't belong to the session, and a 404
+     * if the image file doesn't exist.
      *
      * @author André Elvan
      * @since 1.0.0
      */
-    public function actionTurnImage(): Response
+    public function turnImage(Request $request): StreamedResponse
     {
-        $session = $this->_requireSession((int)$this->request->getRequiredQueryParam('sessionId'));
-        $turnId = $this->request->getRequiredQueryParam('turnId');
-        $sessions = AiImageEditor::$plugin->getSessions();
+        $request->validate([
+            'sessionId' => ['required', 'integer'],
+            'turnId' => ['required'],
+        ]);
 
+        $session = $this->_requireSession($request->integer('sessionId'));
+        $turnId = $request->string('turnId')->toString();
+
+        // An invalid turn ID is a 400, so it's resolved outside the try.
+        $turn = $turnId === 'source' ? null : $this->_getSessionTurn($session, (int)$turnId);
         $image = null;
 
         try {
-            if ($turnId === 'source') {
-                $image = $sessions->getSourceImageStream($session);
-            } else {
-                $turn = $this->_getSessionTurn($session, (int)$turnId);
-                $image = $sessions->getTurnImageStream($session, $turn);
-            }
-        } catch (BadRequestHttpException $badRequestException) {
-            // An invalid turn ID stays a 400.
-            throw $badRequestException;
+            $image = $turn === null
+                ? $this->sessions->getSourceImageStream($session)
+                : $this->sessions->getTurnImageStream($session, $turn);
         } catch (Throwable $throwable) {
             // A filesystem read error becomes a handled 404, not a raw 500.
-            Craft::error("Could not read the session image: {$throwable->getMessage()}", __METHOD__);
+            Log::error("Could not read the session image: {$throwable->getMessage()}");
         }
 
-        if ($image === null) {
-            throw new NotFoundHttpException('Image not found.');
-        }
+        abort_if($image === null, 404, 'Image not found.');
 
-        return $this->response->sendStreamAsFile($image['stream'], $image['filename'], [
-            'inline' => true,
-            'fileSize' => $image['fileSize'],
-            'mimeType' => FileHelper::getMimeTypeByExtension($image['filename']) ?? 'application/octet-stream',
+        $stream = $image['stream'];
+
+        return response()->stream(static function() use ($stream): void {
+            fpassthru($stream);
+
+            if (\is_resource($stream)) {
+                fclose($stream);
+            }
+        }, 200, [
+            'Content-Type' => File::getMimeTypeByExtension($image['filename']) ?? 'application/octet-stream',
+            'Content-Length' => (string)$image['fileSize'],
+            'Content-Disposition' => sprintf('inline; filename="%s"', addcslashes($image['filename'], '"\\')),
+            'Cache-Control' => 'private, max-age=3600',
         ]);
     }
 
@@ -547,37 +483,28 @@ class SessionsController extends Controller
      * `maxRequestsPerMinute` cap, or null when the request may proceed (also when
      * the cap is disabled with `0`).
      *
-     * Uses a fixed one-minute cache window keyed by user ID, so a runaway retry
+     * Uses a one-minute rate limiter window keyed by user ID, so a runaway retry
      * loop or a scripted client can't run up provider costs unchecked.
      */
-    private function _checkRateLimit(): ?Response
+    private function _checkRateLimit(): ?JsonResponse
     {
-        $limit = AiImageEditor::$plugin->getSettings()->maxRequestsPerMinute;
+        $limit = app(Settings::class)->maxRequestsPerMinute;
 
         if ($limit <= 0) {
             return null;
         }
 
-        $userId = Craft::$app->getUser()->getId();
+        $key = 'ai-image-editor:rate:' . $this->currentUser()->id;
 
-        if ($userId === null) {
-            return null;
-        }
-
-        $window = 60;
-        $cache = Craft::$app->getCache();
-        $key = "ai-image-editor:rate:{$userId}:" . (int)floor(time() / $window);
-        $count = (int)$cache->get($key);
-
-        if ($count >= $limit) {
-            return $this->asJson([
+        if (RateLimiter::tooManyAttempts($key, $limit)) {
+            return response()->json([
                 'success' => false,
-                'message' => Craft::t('ai-image-editor', 'You are making requests too quickly. Please wait a moment and try again.'),
-                'retryAfter' => $window - (time() % $window),
+                'message' => t('You are making requests too quickly. Please wait a moment and try again.', category: 'ai-image-editor'),
+                'retryAfter' => RateLimiter::availableIn($key),
             ]);
         }
 
-        $cache->set($key, $count + 1, $window);
+        RateLimiter::hit($key, 60);
 
         return null;
     }
@@ -586,36 +513,41 @@ class SessionsController extends Controller
      * Returns the session with the given ID, ensuring it exists and belongs to
      * the current user.
      *
-     * @throws NotFoundHttpException if the session doesn't exist
-     * @throws ForbiddenHttpException if the session belongs to another user
+     * Responds with a 404 if the session doesn't exist, and a 403 if it
+     * belongs to another user.
      */
     private function _requireSession(int $sessionId): EditSession
     {
-        $session = AiImageEditor::$plugin->getSessions()->getSessionById($sessionId);
+        $session = $this->sessions->getSessionById($sessionId);
 
-        if ($session === null) {
-            throw new NotFoundHttpException('Session not found.');
-        }
+        abort_if($session === null, 404, 'Session not found.');
+        abort_if($session->userId !== (int)$this->currentUser()->id, 403, 'This edit session belongs to another user.');
 
-        $currentUser = Craft::$app->getUser()->getIdentity();
-
-        if ($currentUser === null || $session->userId !== (int)$currentUser->id) {
-            throw new ForbiddenHttpException('This edit session belongs to another user.');
-        }
-
-        $this->requirePermission($session->isGeneration() ? self::PERMISSION_GENERATE : self::PERMISSION_EDIT);
+        Gate::authorize($session->isGeneration() ? AiImageEditor::PERMISSION_GENERATE : AiImageEditor::PERMISSION_EDIT);
 
         return $session;
     }
 
     /**
+     * Returns the logged-in user. The routes require authentication, so there always is one.
+     */
+    private function currentUser(): User
+    {
+        $user = currentUserElement();
+
+        abort_if($user === null, 403, 'You must be logged in.');
+
+        return $user;
+    }
+
+    /**
      * Returns a turn, ensuring it belongs to the given session.
      *
-     * @throws BadRequestHttpException if the turn doesn't belong to the session
+     * Responds with a 400 if the turn doesn't belong to the session.
      */
     private function _getSessionTurn(EditSession $session, int $turnId): EditTurn
     {
-        $turns = AiImageEditor::$plugin->getSessions()->getTurns($session);
+        $turns = $this->sessions->getTurns($session);
 
         foreach ($turns as $turn) {
             if ($turn->id === $turnId) {
@@ -623,7 +555,7 @@ class SessionsController extends Controller
             }
         }
 
-        throw new BadRequestHttpException('Invalid turn ID.');
+        abort(400, 'Invalid turn ID.');
     }
 
     /**
@@ -631,8 +563,7 @@ class SessionsController extends Controller
      */
     private function _sessionPayload(EditSession $session): array
     {
-        $plugin = AiImageEditor::$plugin;
-        $settings = $plugin->getSettings();
+        $settings = app(Settings::class);
         $sourceAsset = $session->getSourceAsset();
 
         $driverName = $session->driverHandle;
@@ -643,7 +574,7 @@ class SessionsController extends Controller
         $models = [];
 
         try {
-            $driver = $plugin->getDrivers()->getDriver($session->driverHandle);
+            $driver = $this->drivers->getDriver($session->driverHandle);
             $driverName = $driver->getName();
             $aspectRatios = $driver->getSupportedAspectRatios($session->model);
             $outputFormats = $driver->getSupportedOutputFormats($session->model);
@@ -675,7 +606,7 @@ class SessionsController extends Controller
         $providerNames = [$driverName];
 
         try {
-            $analysisDriver = $plugin->getDrivers()->getAnalysisDriver($session->driverHandle);
+            $analysisDriver = $this->drivers->getAnalysisDriver($session->driverHandle);
 
             if ($analysisDriver->getHandle() !== $session->driverHandle) {
                 $analysisName = $analysisDriver->getName();
@@ -751,7 +682,7 @@ class SessionsController extends Controller
             'sourceImageUrl' => $session->isGeneration() ? null : $this->_imageUrl($session, 'source'),
             'turns' => array_map(
                 fn(EditTurn $turn) => $this->_turnPayload($session, $turn),
-                $plugin->getSessions()->getTurns($session)
+                $this->sessions->getTurns($session)
             ),
         ];
     }
@@ -782,7 +713,7 @@ class SessionsController extends Controller
         }
 
         try {
-            $driver = AiImageEditor::$plugin->getDrivers()->getDriver($session->driverHandle);
+            $driver = $this->drivers->getDriver($session->driverHandle);
         } catch (Throwable) {
             return;
         }
@@ -791,7 +722,7 @@ class SessionsController extends Controller
             return;
         }
 
-        AiImageEditor::$plugin->getSessions()->updateSessionModel($session, $model);
+        $this->sessions->updateSessionModel($session, $model);
     }
 
     /**
@@ -805,7 +736,7 @@ class SessionsController extends Controller
         }
 
         try {
-            $supported = AiImageEditor::$plugin->getDrivers()
+            $supported = $this->drivers
                 ->getDriver($session->driverHandle)
                 ->getSupportedResolutions($session->model);
         } catch (Throwable) {
@@ -826,7 +757,7 @@ class SessionsController extends Controller
         }
 
         try {
-            $supported = AiImageEditor::$plugin->getDrivers()
+            $supported = $this->drivers
                 ->getDriver($session->driverHandle)
                 ->getSupportedAspectRatios($session->model);
         } catch (Throwable) {
@@ -847,7 +778,7 @@ class SessionsController extends Controller
         }
 
         try {
-            $supported = AiImageEditor::$plugin->getDrivers()
+            $supported = $this->drivers
                 ->getDriver($session->driverHandle)
                 ->getSupportedOutputFormats($session->model);
         } catch (Throwable) {
@@ -862,7 +793,7 @@ class SessionsController extends Controller
      */
     private function _imageUrl(EditSession $session, string $turnId): string
     {
-        return UrlHelper::actionUrl('ai-image-editor/sessions/turn-image', [
+        return Url::cpUrl('ai-image-editor/sessions/turn-image', [
             'sessionId' => $session->id,
             'turnId' => $turnId,
         ]);
