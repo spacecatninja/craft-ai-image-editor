@@ -1,6 +1,6 @@
 # AI Image Editor Changelog
 
-## 2.0.0 - Unreleased
+## 2.0.0-beta.1 - 2026-11-14
 
 > [!IMPORTANT]
 > AI Image Editor 2 requires Craft CMS 6 and PHP 8.5, and has breaking changes for plugins and modules that extend it. See [UPGRADE.md](UPGRADE.md).
