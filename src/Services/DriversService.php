@@ -10,84 +10,39 @@
 
 namespace SpaceCatNinja\AiImageEditor\Services;
 
-use craft\base\Component;
-
-use SpaceCatNinja\AiImageEditor\AiImageEditor;
+use Illuminate\Container\Attributes\Singleton;
 use SpaceCatNinja\AiImageEditor\Drivers\EditDriverInterface;
-
-use yii\base\InvalidConfigException;
+use SpaceCatNinja\AiImageEditor\Drivers\EditDrivers;
+use SpaceCatNinja\AiImageEditor\Exceptions\EditDriverException;
+use SpaceCatNinja\AiImageEditor\Settings;
 
 /**
- * The Drivers service maintains the registry of available edit drivers and
- * creates driver instances.
- *
- * An instance of the service is available via `AiImageEditor::$plugin->getDrivers()`.
+ * Creates edit driver instances from the drivers registered in {@see EditDrivers}.
  *
  * @author André Elvan
  * @since 1.0.0
  */
-class DriversService extends Component
+#[Singleton]
+class DriversService
 {
-    // Static Properties
-    // =========================================================================
-
-    /**
-     * @var array<string, class-string> Registered driver classes, indexed by handle.
-     */
-    private static array $_driverClasses = [];
-
-    // Private Properties
-    // =========================================================================
-
     /**
      * @var array<string, EditDriverInterface> Instantiated drivers, indexed by handle.
      */
-    private array $_drivers = [];
+    private array $drivers = [];
 
-    // Public Methods
-    // =========================================================================
-
-    /**
-     * Registers an edit driver class for a handle.
-     *
-     * @param string $handle
-     * @param string $class
-     *
-     * @author André Elvan
-     * @since 1.0.0
-     */
-    public static function registerDriver(string $handle, string $class): void
-    {
-        self::$_driverClasses[$handle] = $class;
-    }
-
-    /**
-     * Returns all registered driver classes, indexed by handle.
-     *
-     * @return array<string, class-string>
-     *
-     * @author André Elvan
-     * @since 1.0.0
-     */
-    public static function getRegisteredDrivers(): array
-    {
-        return self::$_driverClasses;
+    public function __construct(
+        private readonly EditDrivers $registry,
+    ) {
     }
 
     /**
      * Returns the driver configured as the plugin's default.
      *
-     * @return EditDriverInterface
-     * @throws InvalidConfigException if the configured driver handle is unknown or invalid
-     *
-     * @author André Elvan
-     * @since 1.0.0
+     * @throws EditDriverException if the configured driver handle is unknown
      */
     public function getDefaultDriver(): EditDriverInterface
     {
-        $settings = AiImageEditor::$plugin?->getSettings();
-
-        return $this->getDriver($settings?->driver ?? '');
+        return $this->getDriver(app(Settings::class)->driver);
     }
 
     /**
@@ -98,19 +53,15 @@ class DriversService extends Component
      * analysis driver behind a FLUX edit driver.
      *
      * @param string|null $fallbackHandle the edit driver to fall back to when no analysis driver is configured
-     * @return EditDriverInterface
-     * @throws InvalidConfigException if the resolved handle is unknown or invalid
-     *
-     * @author André Elvan
-     * @since 1.0.0
+     * @throws EditDriverException if the resolved handle is unknown
      */
     public function getAnalysisDriver(?string $fallbackHandle = null): EditDriverInterface
     {
-        $settings = AiImageEditor::$plugin?->getSettings();
-        $handle = $settings?->analysisDriver;
+        $settings = app(Settings::class);
+        $handle = $settings->analysisDriver;
 
         if ($handle === null || $handle === '') {
-            $handle = $fallbackHandle ?? $settings?->driver ?? '';
+            $handle = $fallbackHandle ?? $settings->driver;
         }
 
         return $this->getDriver($handle);
@@ -119,33 +70,20 @@ class DriversService extends Component
     /**
      * Returns the driver instance for the given handle.
      *
-     * @param string $handle
-     * @return EditDriverInterface
-     * @throws InvalidConfigException if the handle is unknown, or the registered class does not implement EditDriverInterface
-     *
-     * @author André Elvan
-     * @since 1.0.0
+     * @throws EditDriverException if no driver is registered for the handle
      */
     public function getDriver(string $handle): EditDriverInterface
     {
-        if (isset($this->_drivers[$handle])) {
-            return $this->_drivers[$handle];
+        if (isset($this->drivers[$handle])) {
+            return $this->drivers[$handle];
         }
 
-        $class = self::$_driverClasses[$handle] ?? null;
+        $class = $this->registry->get($handle);
 
         if ($class === null) {
-            throw new InvalidConfigException("No edit driver is registered for handle \"{$handle}\".");
+            throw new EditDriverException("No edit driver is registered for handle \"{$handle}\".");
         }
 
-        $driver = new $class();
-
-        if (!$driver instanceof EditDriverInterface) {
-            throw new InvalidConfigException("Edit driver \"{$class}\" does not implement EditDriverInterface.");
-        }
-
-        $this->_drivers[$handle] = $driver;
-
-        return $driver;
+        return $this->drivers[$handle] = app($class);
     }
 }

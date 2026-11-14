@@ -10,18 +10,16 @@
 
 namespace SpaceCatNinja\AiImageEditor\Drivers;
 
-use Craft;
-use craft\base\Component;
-use craft\helpers\App;
-use craft\helpers\FileHelper;
-use craft\helpers\StringHelper;
+use CraftCms\Cms\Support\File;
+use CraftCms\Cms\Support\Facades\Deprecator;
+use CraftCms\Cms\Support\Str;
 
-use SpaceCatNinja\AiImageEditor\AiImageEditor;
 use SpaceCatNinja\AiImageEditor\Exceptions\EditDriverException;
 use SpaceCatNinja\AiImageEditor\Support\AnalysisHelper;
 use SpaceCatNinja\AiImageEditor\Data\EditRequest;
+use SpaceCatNinja\AiImageEditor\Settings;
 
-use yii\base\ErrorException;
+use CraftCms\Cms\Support\Env;
 
 /**
  * Base class for edit drivers, holding the behavior shared across providers:
@@ -33,7 +31,7 @@ use yii\base\ErrorException;
  * @author André Elvan
  * @since 1.0.0
  */
-abstract class BaseEditDriver extends Component implements EditDriverInterface
+abstract class BaseEditDriver implements EditDriverInterface
 {
     // Const Properties
     // =========================================================================
@@ -87,8 +85,8 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      */
     public function getWorkingResolution(?string $model = null): string
     {
-        $settings = AiImageEditor::$plugin?->getSettings();
-        $value = $this->getConfig('workingResolution') ?? $settings?->workingResolution ?? '1K';
+        $settings = $this->settings();
+        $value = $this->getConfig('workingResolution') ?? $settings->workingResolution ?? '1K';
 
         return $this->clampToSupported((string)$value, $model);
     }
@@ -98,8 +96,8 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      */
     public function getFinalResolution(?string $model = null): string
     {
-        $settings = AiImageEditor::$plugin?->getSettings();
-        $value = $this->getConfig('finalResolution') ?? $settings?->finalResolution ?? '2K';
+        $settings = $this->settings();
+        $value = $this->getConfig('finalResolution') ?? $settings->finalResolution ?? '2K';
 
         return $this->clampToSupported((string)$value, $model);
     }
@@ -205,7 +203,7 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
 
         $handle = $this->getHandle();
 
-        Craft::$app->getDeprecator()->log(
+        Deprecator::log(
             "ai-image-editor.retired-model.{$handle}.{$model}",
             "The `{$model}` model has been retired by the provider, so `{$replacement}` is used instead. If it's set as the `{$handle}` driver's `defaultModel` in `config/ai-image-editor.php`, update it there."
         );
@@ -225,7 +223,7 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      * @param string $data the raw (already decoded) image bytes
      * @return string the absolute path to the written file
      * @throws EditDriverException if the target directory is unset, or the bytes aren't a supported image
-     * @throws ErrorException if the file can't be written
+     * @throws \RuntimeException if the file can't be written
      *
      * @author André Elvan
      * @since 1.0.0
@@ -243,12 +241,20 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
             throw new EditDriverException('The provider returned data that is not a supported image.');
         }
 
-        $filename = sprintf('result-%s.%s', strtolower(StringHelper::randomString(16)), $extension);
+        $filename = sprintf('result-%s.%s', strtolower(Str::random(16)), $extension);
         $path = rtrim($targetDir, '/') . '/' . $filename;
 
-        FileHelper::writeToFile($path, $data);
+        File::writeToFile($path, $data);
 
         return $path;
+    }
+
+    /**
+     * Returns the plugin settings.
+     */
+    protected function settings(): Settings
+    {
+        return app(Settings::class);
     }
 
     /**
@@ -264,7 +270,7 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      */
     protected function getConfig(string $key, mixed $default = null): mixed
     {
-        $driverConfig = AiImageEditor::$plugin?->getSettings()?->driverConfig ?? [];
+        $driverConfig = $this->settings()->driverConfig ?? [];
         $config = $driverConfig[$this->getHandle()] ?? [];
 
         return $config[$key] ?? $default;
@@ -281,7 +287,7 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      */
     protected function getApiKey(): ?string
     {
-        $apiKey = App::parseEnv($this->getConfig('apiKey'));
+        $apiKey = Env::parse($this->getConfig('apiKey'));
 
         return \is_string($apiKey) && $apiKey !== '' ? $apiKey : null;
     }
@@ -296,7 +302,7 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      */
     protected function getRequestTimeout(): int
     {
-        return AiImageEditor::$plugin?->getSettings()?->requestTimeout ?? 120;
+        return $this->settings()->requestTimeout ?? 120;
     }
 
     /**
@@ -315,7 +321,7 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
             return $request->prompt;
         }
 
-        $instructions = AiImageEditor::$plugin?->getSettings()?->preserveInstructions
+        $instructions = $this->settings()->preserveInstructions
             ?? static::DEFAULT_PRESERVE_INSTRUCTIONS;
 
         if (trim($instructions) === '') {
@@ -384,7 +390,7 @@ abstract class BaseEditDriver extends Component implements EditDriverInterface
      */
     protected function capResolutions(array $tiers): array
     {
-        $max = $this->getConfig('maxResolution') ?? AiImageEditor::$plugin?->getSettings()?->maxResolution;
+        $max = $this->getConfig('maxResolution') ?? $this->settings()->maxResolution;
 
         if (!\is_string($max) || $max === '') {
             return $tiers;

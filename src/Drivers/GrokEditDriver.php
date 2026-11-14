@@ -10,8 +10,6 @@
 
 namespace SpaceCatNinja\AiImageEditor\Drivers;
 
-use Craft;
-use craft\helpers\FileHelper;
 
 use SpaceCatNinja\AiImageEditor\Clients\GrokApiClient;
 use SpaceCatNinja\AiImageEditor\Exceptions\EditDriverException;
@@ -19,7 +17,8 @@ use SpaceCatNinja\AiImageEditor\Exceptions\GrokApiException;
 use SpaceCatNinja\AiImageEditor\Data\EditRequest;
 use SpaceCatNinja\AiImageEditor\Data\EditResult;
 
-use yii\base\ErrorException;
+use CraftCms\Cms\Support\File;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Edit driver for xAI's Grok Imagine image models.
@@ -151,7 +150,7 @@ class GrokEditDriver extends BaseEditDriver
 
         if (!$isGeneration && !file_exists($request->sourceImagePath)) {
             $result->errorMessage = 'The source image for this edit could not be found.';
-            Craft::error("Source image not found at \"{$request->sourceImagePath}\".", __METHOD__);
+            Log::error("Source image not found at \"{$request->sourceImagePath}\".");
 
             return $result;
         }
@@ -179,7 +178,7 @@ class GrokEditDriver extends BaseEditDriver
                 $payload['aspect_ratio'] = $request->aspectRatio ?? '1:1';
                 $response = $client->createImage($payload);
             } else {
-                $mimeType = FileHelper::getMimeType($request->sourceImagePath) ?? 'image/png';
+                $mimeType = File::getMimeType($request->sourceImagePath) ?? 'image/png';
                 $payload['image'] = [
                     'type' => 'image_url',
                     'url' => 'data:' . $mimeType . ';base64,' . base64_encode(file_get_contents($request->sourceImagePath)),
@@ -196,7 +195,7 @@ class GrokEditDriver extends BaseEditDriver
                 'statusCode' => $grokApiException->statusCode,
                 'retryAfter' => $grokApiException->retryAfter,
             ];
-            Craft::error("Grok edit request failed: {$grokApiException->getMessage()}", __METHOD__);
+            Log::error("Grok edit request failed: {$grokApiException->getMessage()}");
 
             return $result;
         }
@@ -221,9 +220,9 @@ class GrokEditDriver extends BaseEditDriver
 
         try {
             $resultImagePath = $this->writeResultImage($request->targetDir, $decoded);
-        } catch (EditDriverException|ErrorException $writeException) {
+        } catch (EditDriverException|\ErrorException|\RuntimeException $writeException) {
             $result->errorMessage = 'The edited image could not be saved to disk.';
-            Craft::error("Could not write Grok result image: {$writeException->getMessage()}", __METHOD__);
+            Log::error("Could not write Grok result image: {$writeException->getMessage()}");
 
             return $result;
         }
@@ -258,7 +257,7 @@ class GrokEditDriver extends BaseEditDriver
             return null;
         }
 
-        $mimeType = FileHelper::getMimeType($imagePath) ?? 'image/png';
+        $mimeType = File::getMimeType($imagePath) ?? 'image/png';
         $dataUrl = 'data:' . $mimeType . ';base64,' . base64_encode(file_get_contents($imagePath));
 
         try {
@@ -281,7 +280,7 @@ class GrokEditDriver extends BaseEditDriver
                 ],
             ]);
         } catch (GrokApiException $grokApiException) {
-            Craft::warning("Image analysis failed: {$grokApiException->getMessage()}", __METHOD__);
+            Log::warning("Image analysis failed: {$grokApiException->getMessage()}");
 
             return null;
         }

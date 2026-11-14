@@ -10,7 +10,6 @@
 
 namespace SpaceCatNinja\AiImageEditor\Drivers;
 
-use Craft;
 
 use SpaceCatNinja\AiImageEditor\Clients\FluxApiClient;
 use SpaceCatNinja\AiImageEditor\Exceptions\EditDriverException;
@@ -18,7 +17,7 @@ use SpaceCatNinja\AiImageEditor\Exceptions\FluxApiException;
 use SpaceCatNinja\AiImageEditor\Data\EditRequest;
 use SpaceCatNinja\AiImageEditor\Data\EditResult;
 
-use yii\base\ErrorException;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Edit driver for the Black Forest Labs FLUX 3 Image and FLUX.2 models, which
@@ -193,7 +192,7 @@ class FluxEditDriver extends BaseEditDriver
 
         if (!$isGeneration && !file_exists($request->sourceImagePath)) {
             $result->errorMessage = 'The source image for this edit could not be found.';
-            Craft::error("Source image not found at \"{$request->sourceImagePath}\".", __METHOD__);
+            Log::error("Source image not found at \"{$request->sourceImagePath}\".");
 
             return $result;
         }
@@ -212,16 +211,16 @@ class FluxEditDriver extends BaseEditDriver
                 'statusCode' => $fluxApiException->statusCode,
                 'retryAfter' => $fluxApiException->retryAfter,
             ];
-            Craft::error("FLUX edit request failed: {$fluxApiException->getMessage()}", __METHOD__);
+            Log::error("FLUX edit request failed: {$fluxApiException->getMessage()}");
 
             return $result;
         }
 
         try {
             $resultImagePath = $this->writeResultImage($request->targetDir, $image['data']);
-        } catch (EditDriverException|ErrorException $writeException) {
+        } catch (EditDriverException|\ErrorException|\RuntimeException $writeException) {
             $result->errorMessage = 'The edited image could not be saved to disk.';
-            Craft::error("Could not write FLUX result image: {$writeException->getMessage()}", __METHOD__);
+            Log::error("Could not write FLUX result image: {$writeException->getMessage()}");
 
             return $result;
         }

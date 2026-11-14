@@ -10,8 +10,6 @@
 
 namespace SpaceCatNinja\AiImageEditor\Drivers;
 
-use Craft;
-use craft\helpers\FileHelper;
 
 use SpaceCatNinja\AiImageEditor\Clients\GeminiApiClient;
 use SpaceCatNinja\AiImageEditor\Exceptions\EditDriverException;
@@ -19,7 +17,8 @@ use SpaceCatNinja\AiImageEditor\Exceptions\GeminiApiException;
 use SpaceCatNinja\AiImageEditor\Data\EditRequest;
 use SpaceCatNinja\AiImageEditor\Data\EditResult;
 
-use yii\base\ErrorException;
+use CraftCms\Cms\Support\File;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Edit driver for the Google Gemini image models (Nano Banana).
@@ -179,7 +178,7 @@ class GeminiEditDriver extends BaseEditDriver
         // An empty source path is a generation turn, the prompt alone is the input.
         if ($request->sourceImagePath !== '' && !file_exists($request->sourceImagePath)) {
             $result->errorMessage = 'The source image for this edit could not be found.';
-            Craft::error("Source image not found at \"{$request->sourceImagePath}\".", __METHOD__);
+            Log::error("Source image not found at \"{$request->sourceImagePath}\".");
 
             return $result;
         }
@@ -217,7 +216,7 @@ class GeminiEditDriver extends BaseEditDriver
             // If the provider no longer recognizes the previous interaction,
             // fall back to a stateless request with the working image attached.
             if ($previousInteractionId !== null && \in_array($geminiApiException->statusCode, [400, 404, 422], true)) {
-                Craft::warning("Gemini rejected previous interaction \"{$previousInteractionId}\", retrying statelessly: {$geminiApiException->getMessage()}", __METHOD__);
+                Log::warning("Gemini rejected previous interaction \"{$previousInteractionId}\", retrying statelessly: {$geminiApiException->getMessage()}");
 
                 try {
                     $response = $client->createImageInteraction($this->_buildPayload($request, $model, $prompt, $resolution, null));
@@ -232,7 +231,7 @@ class GeminiEditDriver extends BaseEditDriver
                     'statusCode' => $geminiApiException->statusCode,
                     'retryAfter' => $geminiApiException->retryAfter,
                 ];
-                Craft::error("Gemini edit request failed: {$geminiApiException->getMessage()}", __METHOD__);
+                Log::error("Gemini edit request failed: {$geminiApiException->getMessage()}");
 
                 return $result;
             }
@@ -255,9 +254,9 @@ class GeminiEditDriver extends BaseEditDriver
 
         try {
             $resultImagePath = $this->writeResultImage($request->targetDir, $image['data']);
-        } catch (EditDriverException|ErrorException $writeException) {
+        } catch (EditDriverException|\ErrorException|\RuntimeException $writeException) {
             $result->errorMessage = 'The edited image could not be saved to disk.';
-            Craft::error("Could not write Gemini result image: {$writeException->getMessage()}", __METHOD__);
+            Log::error("Could not write Gemini result image: {$writeException->getMessage()}");
 
             return $result;
         }
@@ -308,7 +307,7 @@ class GeminiEditDriver extends BaseEditDriver
         if ($previousInteractionId === null && $request->sourceImagePath !== '') {
             $input[] = [
                 'type' => 'image',
-                'mime_type' => FileHelper::getMimeType($request->sourceImagePath) ?? 'image/png',
+                'mime_type' => File::getMimeType($request->sourceImagePath) ?? 'image/png',
                 'data' => base64_encode(file_get_contents($request->sourceImagePath)),
             ];
         }
@@ -503,7 +502,7 @@ class GeminiEditDriver extends BaseEditDriver
                 ],
                 [
                     'type' => 'image',
-                    'mime_type' => FileHelper::getMimeType($imagePath) ?? 'image/png',
+                    'mime_type' => File::getMimeType($imagePath) ?? 'image/png',
                     'data' => base64_encode(file_get_contents($imagePath)),
                 ],
             ],
@@ -512,7 +511,7 @@ class GeminiEditDriver extends BaseEditDriver
         try {
             $response = $client->createTextInteraction($payload);
         } catch (GeminiApiException $geminiApiException) {
-            Craft::warning("Image analysis failed: {$geminiApiException->getMessage()}", __METHOD__);
+            Log::warning("Image analysis failed: {$geminiApiException->getMessage()}");
 
             return null;
         }

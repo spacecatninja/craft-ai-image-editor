@@ -10,8 +10,6 @@
 
 namespace SpaceCatNinja\AiImageEditor\Drivers;
 
-use Craft;
-use craft\helpers\FileHelper;
 
 use SpaceCatNinja\AiImageEditor\Clients\OpenAiApiClient;
 use SpaceCatNinja\AiImageEditor\Exceptions\EditDriverException;
@@ -19,7 +17,8 @@ use SpaceCatNinja\AiImageEditor\Exceptions\OpenAiApiException;
 use SpaceCatNinja\AiImageEditor\Data\EditRequest;
 use SpaceCatNinja\AiImageEditor\Data\EditResult;
 
-use yii\base\ErrorException;
+use CraftCms\Cms\Support\File;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Edit driver for the OpenAI image models (GPT Image).
@@ -203,7 +202,7 @@ class OpenAiEditDriver extends BaseEditDriver
         // An empty source path is a generation turn, the prompt alone is the input.
         if ($request->sourceImagePath !== '' && !file_exists($request->sourceImagePath)) {
             $result->errorMessage = 'The source image for this edit could not be found.';
-            Craft::error("Source image not found at \"{$request->sourceImagePath}\".", __METHOD__);
+            Log::error("Source image not found at \"{$request->sourceImagePath}\".");
 
             return $result;
         }
@@ -260,7 +259,7 @@ class OpenAiEditDriver extends BaseEditDriver
                 'statusCode' => $openAiApiException->statusCode,
                 'retryAfter' => $openAiApiException->retryAfter,
             ];
-            Craft::error("OpenAI edit request failed: {$openAiApiException->getMessage()}", __METHOD__);
+            Log::error("OpenAI edit request failed: {$openAiApiException->getMessage()}");
 
             return $result;
         }
@@ -278,9 +277,9 @@ class OpenAiEditDriver extends BaseEditDriver
 
         try {
             $resultImagePath = $this->writeResultImage($request->targetDir, $decoded);
-        } catch (EditDriverException|ErrorException $writeException) {
+        } catch (EditDriverException|\ErrorException|\RuntimeException $writeException) {
             $result->errorMessage = 'The edited image could not be saved to disk.';
-            Craft::error("Could not write OpenAI result image: {$writeException->getMessage()}", __METHOD__);
+            Log::error("Could not write OpenAI result image: {$writeException->getMessage()}");
 
             return $result;
         }
@@ -318,7 +317,7 @@ class OpenAiEditDriver extends BaseEditDriver
             return null;
         }
 
-        $mimeType = FileHelper::getMimeType($imagePath) ?? 'image/png';
+        $mimeType = File::getMimeType($imagePath) ?? 'image/png';
         $dataUrl = 'data:' . $mimeType . ';base64,' . base64_encode(file_get_contents($imagePath));
 
         try {
@@ -341,7 +340,7 @@ class OpenAiEditDriver extends BaseEditDriver
                 ],
             ]);
         } catch (OpenAiApiException $openAiApiException) {
-            Craft::warning("Image analysis failed: {$openAiApiException->getMessage()}", __METHOD__);
+            Log::warning("Image analysis failed: {$openAiApiException->getMessage()}");
 
             return null;
         }
