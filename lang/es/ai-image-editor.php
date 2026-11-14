@@ -95,4 +95,6 @@ return [
     'The edited image could not be saved as an asset.' => 'No se pudo guardar la imagen editada como activo.',
     'A generated image has no original to replace.' => 'Una imagen generada no tiene ningún original que reemplazar.',
     'The save was cancelled.' => 'El guardado se canceló.',
+    'Versions' => 'Versiones',
+    'Replace the original image? This will permanently overwrite the current file.' => '¿Reemplazar la imagen original? El archivo actual se sobrescribirá de forma permanente.',
 ];

@@ -10,9 +10,9 @@
 
 /**
  * The plugin's source (English) strings, covering both the PHP messages and the
- * editor interface (`src/assetbundles/dist/editor.js`), all in the
+ * editor interface (`resources/dist/editor.js`), all in the
  * `ai-image-editor` category. Copy this file to another locale directory
- * (e.g. `translations/nb/ai-image-editor.php`) and translate the values.
+ * (e.g. `lang/nb/ai-image-editor.php`) and translate the values.
  *
  * Keep placeholders (`{driver}`, `{provider}`, `{filename}`, `{number}`), code
  * paths in backticks, and the product name "AI Image Editor" intact.
@@ -100,4 +100,6 @@ return [
     'The edited image could not be saved as an asset.' => 'The edited image could not be saved as an asset.',
     'A generated image has no original to replace.' => 'A generated image has no original to replace.',
     'The save was cancelled.' => 'The save was cancelled.',
+    'Versions' => 'Versions',
+    'Replace the original image? This will permanently overwrite the current file.' => 'Replace the original image? This will permanently overwrite the current file.',
 ];

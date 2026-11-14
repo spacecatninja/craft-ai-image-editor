@@ -95,4 +95,6 @@ return [
     'The edited image could not be saved as an asset.' => 'De bewerkte afbeelding kon niet als bestand worden opgeslagen.',
     'A generated image has no original to replace.' => 'Een gegenereerde afbeelding heeft geen origineel om te vervangen.',
     'The save was cancelled.' => 'Het opslaan is geannuleerd.',
+    'Versions' => 'Versies',
+    'Replace the original image? This will permanently overwrite the current file.' => 'De originele afbeelding vervangen? Het huidige bestand wordt permanent overschreven.',
 ];

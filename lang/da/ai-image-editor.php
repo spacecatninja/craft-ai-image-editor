@@ -95,4 +95,6 @@ return [
     'The edited image could not be saved as an asset.' => 'Det redigerede billede kunne ikke gemmes som en fil.',
     'A generated image has no original to replace.' => 'Et genereret billede har ingen original at erstatte.',
     'The save was cancelled.' => 'Lagringen blev annulleret.',
+    'Versions' => 'Versioner',
+    'Replace the original image? This will permanently overwrite the current file.' => 'Vil du erstatte originalbilledet? Den nuværende fil overskrives permanent.',
 ];

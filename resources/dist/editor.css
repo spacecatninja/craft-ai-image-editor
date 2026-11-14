@@ -1,17 +1,111 @@
 /**
  * AI Image Editor plugin for Craft CMS
  *
- * Layered on top of Craft's native image editor chrome
- * (.modal.fitted.imageeditor), which this modal reuses for its shell. The
- * composer area below the image intentionally deviates from the Craft look,
+ * A full-viewport <dialog> in the style of Craft's image editor: a dark,
+ * image-dominated shell with the composer below the image and the actions in
+ * the footer. The composer intentionally deviates from the Craft look,
  * towards the integrated prompt bars of AI chat apps.
  */
 
-/* Asset index toolbar button
+/* Shell
    ------------------------------------------------------------------------- */
 
-.ai-generate-btn {
-  margin-inline-end: 8px;
+dialog.aiimageeditor {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background-color: #1d2228;
+  color: #fff;
+  color-scheme: dark;
+  overflow: hidden;
+}
+
+dialog.aiimageeditor::backdrop {
+  background-color: rgba(10, 13, 16, 0.6);
+}
+
+.aiimageeditor .ai-hidden {
+  display: none !important;
+}
+
+.aiimageeditor .ai-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  margin: 0;
+}
+
+.aiimageeditor .ai-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.aiimageeditor .ai-image-container {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.aiimageeditor :focus-visible {
+  outline: 2px solid var(--c-color-focus-outline, #78bafd);
+  outline-offset: 2px;
+}
+
+.aiimageeditor .ai-spinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: ai-send-spin 0.7s linear infinite;
+}
+
+/* Footer buttons, dark-theme counterparts of Craft's buttons */
+.aiimageeditor .ai-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--c-radius-md, 4px);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.aiimageeditor .ai-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.aiimageeditor .ai-btn--primary {
+  border-color: transparent;
+  background-color: var(--c-color-accent-fill-loud, #2563eb);
+  color: var(--c-color-accent-on-loud, #fff);
+}
+
+.aiimageeditor .ai-btn--primary:hover:not(:disabled) {
+  background-color: var(--c-color-accent-fill-loud, #2563eb);
+  filter: brightness(1.1);
+}
+
+.aiimageeditor .ai-btn:disabled,
+.aiimageeditor .ai-btn--busy {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
 }
 
 /* Image area
@@ -39,11 +133,11 @@
 /* Generation empty state: with no draft to show, the image area collapses
    and the composer is centered in the available space, then moves down to
    its usual bottom position once the first draft arrives. */
-.aiimageeditor .image-container.ai-centered .image {
+.aiimageeditor .ai-image-container.ai-centered .ai-image {
   display: none;
 }
 
-.aiimageeditor .image-container.ai-centered .image-tools.ai-tools {
+.aiimageeditor .ai-image-container.ai-centered .ai-tools {
   flex-grow: 1;
   align-items: center;
   padding-bottom: 12px;
@@ -74,7 +168,7 @@
   z-index: 2;
 }
 
-.aiimageeditor .ai-image-overlay:not(.hidden) {
+.aiimageeditor .ai-image-overlay:not(.ai-hidden) {
   animation: ai-fade-in 0.18s ease;
 }
 
@@ -106,7 +200,7 @@
 }
 
 .aiimageeditor .ai-overlay-chip .ai-overlay-label {
-  color: var(--white);
+  color: #fff;
   font-size: 13px;
 }
 
@@ -114,11 +208,14 @@
    ------------------------------------------------------------------------- */
 
 /* More air around the image than the native editor's 14px. */
-.modal.aiimageeditor .body .image-container .image {
+.aiimageeditor .ai-image {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   margin: 32px 32px 20px;
 }
 
-.aiimageeditor .image-tools.ai-tools {
+.aiimageeditor .ai-tools {
   display: flex;
   justify-content: center;
   padding: 4px 24px 32px;
@@ -240,11 +337,11 @@
 }
 
 .aiimageeditor .ai-thumb.sel {
-  border-color: var(--white);
+  border-color: #fff;
 }
 
 .aiimageeditor .ai-thumb:focus-visible {
-  border-color: var(--focus-ring-color, #78bafd);
+  border-color: var(--c-color-focus-outline, #78bafd);
 }
 
 .aiimageeditor .ai-revert {
@@ -326,7 +423,7 @@
   /* Kept hidden until the max height is reached (managed from JS), so no
      scrollbar flickers in from rounding while the textarea auto-grows. */
   overflow-y: hidden;
-  color: var(--white);
+  color: #fff;
   font-size: 14px;
   line-height: 1.45;
   font-family: inherit;
@@ -432,7 +529,7 @@
 }
 
 .aiimageeditor .ai-precise:has(input:focus-visible) {
-  border-color: var(--focus-ring-color, #78bafd);
+  border-color: var(--c-color-focus-outline, #78bafd);
 }
 
 /* Send button
@@ -448,7 +545,7 @@
   padding: 0;
   border: none;
   border-radius: 50%;
-  background-color: var(--white);
+  background-color: #fff;
   color: #111;
   cursor: pointer;
   transition: opacity 0.12s ease, transform 0.12s ease;
@@ -491,7 +588,7 @@
 /* Compare toggle (finalize step)
    ------------------------------------------------------------------------- */
 
-.modal.aiimageeditor .ai-compare {
+.aiimageeditor .ai-compare {
   display: flex;
   align-self: center;
   gap: 2px;
@@ -501,42 +598,49 @@
   background-color: rgba(255, 255, 255, 0.07);
 }
 
-.modal.aiimageeditor .ai-compare .btn {
+.aiimageeditor .ai-compare button {
   height: 28px;
   padding: 0 14px;
+  border: none;
+  font: inherit;
+  cursor: pointer;
   border-radius: 999px;
   background-color: transparent;
   color: rgba(255, 255, 255, 0.75);
   font-size: 12px;
 }
 
-.modal.aiimageeditor .ai-compare .btn:hover {
+.aiimageeditor .ai-compare button:hover {
   background-color: rgba(255, 255, 255, 0.08);
 }
 
-.modal.aiimageeditor .ai-compare .btn.active {
-  background-color: var(--white);
+.aiimageeditor .ai-compare button.active {
+  background-color: #fff;
   color: #111;
 }
 
 /* Footer
    ------------------------------------------------------------------------- */
 
-.aiimageeditor .footer {
+.aiimageeditor .ai-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding-block: 12px;
+  padding: 12px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: #181c21;
 }
 
-.aiimageeditor .footer .ai-note {
+.aiimageeditor .ai-footer .ai-note {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--gray-300);
+  color: rgba(255, 255, 255, 0.55);
   text-align: start;
 }
 
-.aiimageeditor .footer .buttons.right {
+.aiimageeditor .ai-buttons {
+  display: flex;
   flex-shrink: 0;
+  gap: 8px;
 }

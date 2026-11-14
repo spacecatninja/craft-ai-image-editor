@@ -95,4 +95,6 @@ return [
     'The edited image could not be saved as an asset.' => 'Den redigerade bilden kunde inte sparas som en tillgång.',
     'A generated image has no original to replace.' => 'En genererad bild har inget original att ersätta.',
     'The save was cancelled.' => 'Sparandet avbröts.',
+    'Versions' => 'Versioner',
+    'Replace the original image? This will permanently overwrite the current file.' => 'Ersätta originalbilden? Den nuvarande filen skrivs över permanent.',
 ];
