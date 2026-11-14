@@ -8,8 +8,8 @@ Open any image asset and tell the editor what you want in plain words — *"make
 
 ## Requirements
 
-- Craft CMS 5.0+
-- PHP 8.2+
+- Craft CMS 6.0+ (version 1.x supports Craft 5, see [UPGRADE.md](UPGRADE.md) when moving to Craft 6)
+- PHP 8.5+
 - An API key for at least one supported provider — Google Gemini, OpenAI, Black Forest Labs (FLUX), or xAI (Grok). Bring your own key; requests go directly from your server to the provider.
 
 ## Installation
@@ -17,21 +17,21 @@ Open any image asset and tell the editor what you want in plain words — *"make
 To install the plugin, either install it from the Plugin Store, or follow these instructions:
 
 1. Install with Composer via `composer require spacecatninja/ai-image-editor` from your project directory.
-2. Install the plugin in the Craft Control Panel under Settings → Plugins, or from the command line via `php craft plugin/install ai-image-editor`.
-3. For the plugin work, you need to [configure at least one driver](#configuration) and verify the connection with `php craft ai-image-editor/test-connection`. But first, read on!
+2. Install the plugin in the Craft Control Panel under Settings → Plugins, or from the command line via `php artisan craft:plugin:install ai-image-editor`.
+3. For the plugin work, you need to [configure at least one driver](#configuration) and verify the connection with `php artisan ai-image-editor:test-connection`. But first, read on!
 
 ## Highlights
 
 - **Natural-language editing, inside the control panel.** Free-form instructions in a chat-style composer — not a fixed set of one-click filters. Editors never leave Craft, and never round-trip through a desktop image editor.
-- **Generate images from scratch, too.** Beyond editing existing assets, describe an image in words and the plugin creates it as a new asset — straight from an asset index or an asset-selection modal.
+- **Generate images from scratch, too.** Beyond editing existing assets, describe an image in words and the plugin creates it as a new asset in the folder you choose.
 - **Iterate cheaply, finalize sharp.** Turns run as fast, low-resolution **drafts** while you refine the look; the full-resolution version is rendered only once you accept, with a side-by-side draft/final comparison so nothing changes behind your back.
 - **Bring your own AI provider.** Four drivers ship in the box — **Gemini**, **OpenAI**, **FLUX**, and **Grok** — chosen in your config file, a one-line change to swap. Requests go directly from your server to the provider with your own API key, and other plugins can register more drivers.
 - **Built to stay faithful.** A "Precise edits" mode, multi-turn provider chaining, and automatic aspect-ratio pinning combine to change only what you asked for and stop quality from drifting across successive edits.
-- **Feels like part of Craft.** Reuses the native image-editor interface and its two save actions — replace the original in place, or save as a new sibling asset — respects your volume permissions, auto-detects focal points, and names generated files from an AI description of what's in them.
+- **Feels like part of Craft.** Follows the native image editor's layout and its two save actions — replace the original in place, or save as a new sibling asset — respects your volume permissions, auto-detects focal points, and names generated files from an AI description of what's in them.
 - **Ready for content-disclosure rules.** An optional field flags every AI-edited or -generated asset so you can meet AI-labeling regulations, and it pairs with [Imager X](https://imager-x.spacecat.ninja/) when you need a watermark burned into the pixels.
-- **Cloud- and cluster-friendly.** Works unchanged on Craft Cloud and on load-balanced or ephemeral filesystems — working images live in Craft's temporary filesystem, never a hardcoded local path.
-- **Configured as code.** No settings screen to click through: everything lives in `config/ai-image-editor.php`, so it's versioned and multi-environment by default.
-- **Extensible.** Before/after events on every edit and save let you observe, adjust, or veto them, and you can register custom drivers for other providers.
+- **Cloud- and cluster-friendly.** Works unchanged on Craft Cloud and on load-balanced or ephemeral filesystems — working images live on Craft's temporary asset upload disk, never a hardcoded local path.
+- **Configured as code.** No settings screen to click through: everything lives in `config/craft/ai-image-editor.php`, so it's versioned, and environment-specific through `env()`.
+- **Extensible.** Events before and after every edit and save let you observe, adjust, or veto them, and you can register custom drivers for other providers.
 
 ## How it works
 
@@ -39,14 +39,24 @@ To install the plugin, either install it from the Plugin Store, or follow these 
 - When you accept the result, the last accepted draft is regenerated once at the **final resolution** (default 2K) before it's saved as an asset. (Drivers with a single resolution tier, like OpenAI, skip this and save the draft directly.)
 - **Note:** the finalize step is a generative regeneration, not a pixel-preserving upscale. The editor shows a draft/final comparison so you can catch drift, and lets you save the draft instead if the final version isn't faithful.
 - Like the native image editor, there are two save actions: **Save** replaces the original asset's file (the asset and its relations stay intact, requires the "Replace files" volume permission), and **Save as a new asset** creates a sibling asset in the same folder (requires the "Save assets" volume permission).
-- Intermediate results are never Craft assets. They live in Craft's temporary filesystem and are purged when a session is finalized, discarded, or abandoned (see [Craft Cloud and ephemeral filesystems](#craft-cloud-and-ephemeral-filesystems)).
+- Intermediate results are never Craft assets. They live on Craft's temporary asset upload disk and are purged when a session is finalized, discarded, or abandoned (see [Craft Cloud and ephemeral filesystems](#craft-cloud-and-ephemeral-filesystems)).
 - In both cases the file is named `{original-basename}-edit-{timestamp}.{ext}`. If the original already has an edit suffix, it's replaced rather than stacked, so re-editing doesn't compound it.
 - As part of saving, the image's focal point is detected and set on the asset before it's created, so transforms anchor to the subject from the first render. Assets that already have a focal point keep it. Disable with `'autoFocalPoint' => false`.
 - If you set `aiGeneratedField` to the handle of a lightswitch field on your asset volumes, that field is switched on for every asset the plugin edits or generates (including replaced originals), giving you a durable, queryable flag to mark AI-touched images. See [Marking AI-generated content](#marking-ai-generated-content).
 
+### Opening the editor
+
+Open the editor with **Edit with AI**: an action on asset indexes (select one image), an item in an image asset's action menu, and a button in the asset editor's footer. These show for users with the "Edit images with AI" permission, on raster images in volumes they can save assets to.
+
 ### Generating new images
 
-Besides editing existing assets, the plugin can create images from scratch. A **Generate** button appears next to the upload button on asset indexes (for users who can save assets in the volume) and inside asset selection modals. It opens the same editor without a source image: describe what you want, iterate in drafts, and accept to save. Generated assets land in the folder that was selected in the index, named after an AI description of the image (e.g. `golden-retriever-on-a-beach.png`), falling back to the first prompt. Since there is no original, only "Save as a new asset" is offered.
+Besides editing existing assets, the plugin can create images from scratch. A generation session opens the same editor without a source image: describe what you want, iterate in drafts, and accept to save. Generated assets land in the folder that was selected in the index, named after an AI description of the image (e.g. `golden-retriever-on-a-beach.png`), falling back to the first prompt. Since there is no original, only "Save as a new asset" is offered.
+
+Craft 6 doesn't yet let plugins add buttons to the asset index toolbar or the asset selection modal, so the **Generate** button from the Craft 5 version isn't there. Until it is, open a generation session from your own control panel code, with the ID of the folder to save into:
+
+```js
+window.dispatchEvent(new CustomEvent('ai-image-editor:generate', {detail: {folderId: 1}}));
+```
 
 ### Reducing content drift
 
@@ -69,31 +79,29 @@ Four drivers ship with the plugin, selected with the `driver` setting:
 
 The `gemini`, `openai` and `grok` drivers also handle the analysis tasks (focal point detection, descriptive filenames) with their provider's vision models, configurable via each driver's `analysisModel` key. `flux` has no vision model, so it relies on `analysisDriver` (below).
 
-Additional drivers can be registered by other plugins through the `EVENT_REGISTER_EDIT_DRIVERS` event (see [Extending](#extending)). They read their own configuration from `driverConfig[handle]`, so a third-party driver gets typed-free settings without touching the core config, and the simplest ones can extend `spacecatninja\aiimageeditor\drivers\BaseEditDriver` to inherit config reading, credentials, prompt building, and the analysis wrappers.
+Additional drivers can be registered by other plugins through the `EditDrivers` registry (see [Extending](#extending)). They read their own configuration from `driverConfig[handle]`, so a third-party driver gets typed-free settings without touching the core config, and the simplest ones can extend `SpaceCatNinja\AiImageEditor\Drivers\BaseEditDriver` to inherit config reading, credentials, prompt building, and the analysis wrappers.
 
 ## Configuration
 
-There is no control panel settings screen. All configuration is done in `config/ai-image-editor.php`, using Craft's standard multi-environment config format:
+There is no control panel settings screen. All configuration is done in `config/craft/ai-image-editor.php`, a plain Laravel config file. Use `env()` for secrets and environment-specific values:
 
 ```php
 <?php
 
-use craft\helpers\App;
-
 return [
-    '*' => [
-        'driver' => 'gemini',
-        'driverConfig' => [
-            'gemini' => [
-                'apiKey' => App::env('GEMINI_API_KEY'),
-            ],
-            'openai' => [
-                'apiKey' => App::env('OPENAI_API_KEY'),
-            ],
+    'driver' => 'gemini',
+    'driverConfig' => [
+        'gemini' => [
+            'apiKey' => env('GEMINI_API_KEY'),
+        ],
+        'openai' => [
+            'apiKey' => env('OPENAI_API_KEY'),
         ],
     ],
 ];
 ```
+
+The plugin ships a fully commented example in `config/ai-image-editor.php`.
 
 ### Root settings
 
@@ -151,7 +159,7 @@ Presets are one-click chips shown above the composer for common edits. Each entr
 After configuring, verify the setup from the command line:
 
 ```bash
-php craft ai-image-editor/test-connection
+php artisan ai-image-editor:test-connection
 ```
 
 ### Splitting analysis from editing
@@ -162,15 +170,15 @@ Analysis (focal point detection, descriptive filenames) needs a vision-language 
 'driver' => 'flux',
 'analysisDriver' => 'gemini',
 'driverConfig' => [
-    'flux' => ['apiKey' => App::env('FLUX_API_KEY')],
+    'flux' => ['apiKey' => env('FLUX_API_KEY')],
     'gemini' => [
-        'apiKey' => App::env('GEMINI_API_KEY'),
+        'apiKey' => env('GEMINI_API_KEY'),
         'analysisModel' => 'gemini-3.8-flash',
     ],
 ],
 ```
 
-When `analysisDriver` names a different provider, remember it needs its own API key in its `driverConfig` block. `php craft ai-image-editor/test-connection` verifies both providers.
+When `analysisDriver` names a different provider, remember it needs its own API key in its `driverConfig` block. `php artisan ai-image-editor:test-connection` verifies both providers.
 
 ## Marking AI-generated content
 
@@ -201,7 +209,7 @@ Imager X watermarking runs on the local GD/Imagick transformer.
 
 ## Craft Cloud and ephemeral filesystems
 
-An edit session spans several requests (each turn, finalize, and save is a separate request), so the working images have to survive between them. The plugin keeps them in Craft's temporary filesystem (`craft\fs\Temp`), resolved through the container — so on **Craft Cloud** they're stored in the environment's private, object-storage-backed temp area, and on a load-balanced setup they're shared across instances. Nothing is written to a hardcoded local path, and this storage is **not** an asset volume filesystem, so a volume re-index never picks up the transient files.
+An edit session spans several requests (each turn, finalize, and save is a separate request), so the working images have to survive between them. The plugin keeps them on Craft's temporary asset upload disk (the `tempAssetUploadDisk` general config setting). Point that at shared or object storage on **Craft Cloud** or a load-balanced setup, and the files are shared across instances. Nothing is written to a hardcoded local path, and this storage is **not** an asset volume filesystem, so a volume re-index never picks up the transient files.
 
 These files are genuinely temporary: they're removed as soon as a session is finalized, discarded, or purged (`purgeSessionsAfterHours`, default 48). If the platform's temp storage is reclaimed sooner, the worst case is a "start a new session" message on the next turn — no data is lost, since finished results are saved as normal Craft assets.
 
@@ -211,62 +219,57 @@ Images and prompts are sent to the AI provider(s) you configure — the edit dri
 
 ## Extending
 
-Additional providers can register edit drivers through the `EVENT_REGISTER_EDIT_DRIVERS` event:
+### Edit drivers
+
+Additional providers can register edit drivers with the `EditDrivers` registry, from a plugin or module's `boot()` method:
 
 ```php
-use spacecatninja\aiimageeditor\AiImageEditor;
-use spacecatninja\aiimageeditor\events\RegisterEditDriversEvent;
-use yii\base\Event;
+use SpaceCatNinja\AiImageEditor\Drivers\EditDrivers;
 
-Event::on(
-    AiImageEditor::class,
-    AiImageEditor::EVENT_REGISTER_EDIT_DRIVERS,
-    static function(RegisterEditDriversEvent $event) {
-        $event->drivers['my-driver'] = MyEditDriver::class;
-    }
-);
+public function boot(EditDrivers $drivers): void
+{
+    $drivers->register('my-driver', MyEditDriver::class);
+}
 ```
 
-Drivers implement `spacecatninja\aiimageeditor\drivers\EditDriverInterface`.
+Drivers implement `SpaceCatNinja\AiImageEditor\Drivers\EditDriverInterface`, and are created through the container, so their constructors can take dependencies. Registering an existing handle replaces that driver.
 
 ### Lifecycle events
 
-Four events let you observe, adjust, or veto edits and saves:
+Four Laravel events let you observe, adjust, or veto edits and saves. All are in the `SpaceCatNinja\AiImageEditor\Events` namespace:
 
-| Event | Fired on | When | Event class |
-|-------|----------|------|-------------|
-| `EVENT_BEFORE_EDIT` | `SessionsService` | Before each turn is sent to the driver | `EditEvent` |
-| `EVENT_AFTER_EDIT` | `SessionsService` | After a successful turn | `EditEvent` |
-| `EVENT_BEFORE_SAVE` | `FinalizeService` | Before the result is saved as an asset | `SaveEvent` |
-| `EVENT_AFTER_SAVE` | `FinalizeService` | After the result is saved | `SaveEvent` |
+| Event | When | Properties |
+|-------|------|------------|
+| `EditingImage` | Before each turn is sent to the driver | `session`, `request` (mutable), `isValid` |
+| `ImageEdited` | After a successful turn | `session`, `request`, `result` |
+| `SavingImage` | Before the result is saved as an asset | `session`, `asset`, `replace`, `isValid` |
+| `ImageSaved` | After the result is saved | `session`, `asset`, `replace` |
 
-`EditEvent` carries the `session`, the `request` (mutable), the `result` (on the after event), and `isValid`. `SaveEvent` carries the `session`, the `asset`, a `replace` flag, and `isValid`. Set `isValid = false` in a "before" handler to cancel.
+Set `isValid = false` in an `EditingImage` or `SavingImage` listener to cancel.
 
 ```php
-use spacecatninja\aiimageeditor\events\EditEvent;
-use spacecatninja\aiimageeditor\events\SaveEvent;
-use spacecatninja\aiimageeditor\services\FinalizeService;
-use spacecatninja\aiimageeditor\services\SessionsService;
-use yii\base\Event;
+use Illuminate\Support\Facades\Event;
+use SpaceCatNinja\AiImageEditor\Events\EditingImage;
+use SpaceCatNinja\AiImageEditor\Events\SavingImage;
 
 // Tweak or veto a prompt before it runs.
-Event::on(
-    SessionsService::class,
-    SessionsService::EVENT_BEFORE_EDIT,
-    static function(EditEvent $event) {
-        $event->request->prompt .= ' Keep the brand colors intact.';
-        // $event->isValid = false; // cancel the turn
-    }
-);
+Event::listen(function(EditingImage $event) {
+    $event->request->prompt .= ' Keep the brand colors intact.';
+    // $event->isValid = false; // cancel the turn
+});
 
 // Set a field on every AI-saved asset (e.g. alt text).
-Event::on(
-    FinalizeService::class,
-    FinalizeService::EVENT_BEFORE_SAVE,
-    static function(SaveEvent $event) {
-        $event->asset->setFieldValue('altText', 'Edited with AI');
-    }
-);
+Event::listen(function(SavingImage $event) {
+    $event->asset->setFieldValue('altText', 'Edited with AI');
+});
+```
+
+### Opening the editor from your own code
+
+The editor script is loaded on every control panel page. It opens on two window events: `ai-image-editor:edit` with the asset ID as `assetId` in the event detail, and `ai-image-editor:generate` with the target folder ID as `folderId`. After a save, it dispatches `ai-image-editor:saved` with the saved asset in the detail.
+
+```js
+window.dispatchEvent(new CustomEvent('ai-image-editor:edit', {detail: {assetId: 123}}));
 ```
 
 ### Permissions
@@ -276,7 +279,12 @@ The plugin registers two user permissions under an "AI Image Editor" group, assi
 - `ai-image-editor:edit` — open the editor on an existing image and run edits.
 - `ai-image-editor:generate` — generate brand new images.
 
-These gate the editor's entry points and endpoints; the volume permissions (`saveAssets`, `replaceFiles`) still gate the actual save. Reference the handles from `SessionsController::PERMISSION_EDIT` / `PERMISSION_GENERATE`.
+These gate the editor's entry points and endpoints; the volume permissions (`saveAssets`, `replaceFiles`) still gate the actual save. Reference the handles from `AiImageEditor::PERMISSION_EDIT` / `PERMISSION_GENERATE`.
+
+### Console commands
+
+- `php artisan ai-image-editor:test-connection` verifies the configured provider(s).
+- `php artisan ai-image-editor:sessions:purge` purges abandoned sessions and their temporary files, optionally with `--hours=<n>`. The plugin also queues a purge job from control panel requests, at most every six hours.
 
 ## Support
 
