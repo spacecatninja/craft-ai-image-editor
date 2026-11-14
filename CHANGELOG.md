@@ -1,5 +1,19 @@
 # AI Image Editor Changelog
 
+## 1.2.0 - 2026-11-14
+
+### Added
+- Added the GPT Image 2.6 models `gpt-image-2.6-flare` and `gpt-image-2.6-sunburst`, with the same 2K tier and `xhigh`/`max` quality levels as 2.5
+- Added a `complexity` setting for the GPT Image 2.6 models. When it's not set, edits with "Precise edits" on use `low` complexity
+- Added the `nano-banana-2.1` model alias (`gemini-nano-banana-2.1`), with resolution tiers from 512 to 4K and thinking level support
+- Added the FLUX 3 Image models `flux-3-image` and `flux-3-image-klein`, and a `grounding` setting for `flux-3-image` (off by default)
+
+### Changed
+- Changed the default OpenAI model to `gpt-image-2.6-flare`, and the default FLUX model to `flux-3-image`. Set `driverConfig.<handle>.defaultModel` to keep the old ones
+- Changed the OpenAI analysis model to `gpt-6.1-terra`
+- Changed the retired `gpt-image-1`, `gpt-image-1.5` and `gpt-image-1-mini` models (shut down by OpenAI on December 1, 2026) to be swapped for `gpt-image-2.6-flare`, with a deprecation warning logged. "Precise edits" no longer sets `input_fidelity`, since no remaining model accepts it
+- Changed the retired `grok-imagine-image-quality` model (retired by xAI on November 2, 2026) to be swapped for `grok-imagine-image-2.0`, with a deprecation warning logged
+
 ## 1.1.0 - 2026-09-28
 
 ### Added

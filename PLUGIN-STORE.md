@@ -32,9 +32,9 @@ Besides editing existing assets, describe an image and the plugin creates it as 
 
 Pick the provider that fits your budget, quality bar, and data-handling needs — a one-line config change swaps between them. Four drivers ship in the box:
 
-- **Gemini** (Google) — the Nano Banana Pro and Nano Banana 2 image models, resolutions up to 4K, 10 aspect ratios, and multi-turn chaining for low-drift iteration.
-- **OpenAI** — the GPT Image models, with an input-fidelity control that maps to the "Precise edits" toggle for faithful edits.
-- **FLUX** (Black Forest Labs) — the FLUX.2 models, handling both editing and text-to-image generation at high resolution.
+- **Gemini** (Google) — the Nano Banana Pro, Nano Banana 2.1 and Nano Banana 2 image models, resolutions up to 4K, 10 aspect ratios, and multi-turn chaining for low-drift iteration.
+- **OpenAI** — the GPT Image 2.6 and 2.5 models, up to 2K, with a complexity control that the "Precise edits" toggle tunes for faithful edits.
+- **FLUX** (Black Forest Labs) — the FLUX 3 Image and FLUX.2 models, handling both editing and text-to-image generation at high resolution.
 - **Grok** (xAI) — the Grok Imagine models, doing both editing and generation with a built-in vision model.
 
 Bring your own API key for whichever you choose; requests go straight from your server to the provider. Other plugins can register additional drivers, so the roster is open-ended.
