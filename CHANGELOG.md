@@ -22,6 +22,7 @@
 - The editor's endpoints are now control panel routes (`<cpTrigger>/ai-image-editor/sessions/<action>`), instead of action URLs.
 - The editor is now a dependency-free script with a native `<dialog>`, loaded on every control panel page, instead of a Garnish modal in an asset bundle.
 - The **Edit with AI** element action is now a Craft 6 client action.
+- The editor now shows the original, the drafts and the final version at the same size, the size of a draft, instead of showing a large original bigger than its drafts.
 - Session working images are now stored on Laravel's temporary asset upload disk (`tempAssetUploadDisk`), instead of Craft's `Temp` filesystem.
 - The per-user request throttle now uses Laravel's rate limiter.
 - The permission constants moved from `SessionsController` to `AiImageEditor`.

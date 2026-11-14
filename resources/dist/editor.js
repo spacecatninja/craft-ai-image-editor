@@ -36,6 +36,13 @@
   const SAVED_EVENT = 'ai-image-editor:saved';
   const HASH_PATTERN = /^#ai-image-editor:(edit|edit-screen):(\d+)$/;
 
+  /**
+   * Roughly how many pixels a draft has at each resolution tier. The tiers are
+   * pixel budgets at the image's aspect ratio (1K is about one megapixel), so
+   * this predicts a draft's size before the first one comes back.
+   */
+  const TIER_PIXELS = {'512': 512 * 512, '1K': 1024 * 1024, '2K': 2048 * 2048, '4K': 4096 * 4096};
+
   // Helpers
   // ---------------------------------------------------------------------------
 
@@ -188,6 +195,8 @@
       this.selectedTurnId = null;
       this.lastTurnArgs = null;
       this.compareBar = null;
+      // The size every version is shown at, see fitImage()
+      this.displaySize = null;
 
       this.build();
       document.body.append(this.dialog);
@@ -249,6 +258,7 @@
       this.populateFinalResSelect(this.session.finalResolution);
       this.populatePresets();
       this.rebuildStrip();
+      this.displaySize = this.estimateDraftSize();
 
       const turns = this.workingTurns();
 
@@ -547,6 +557,10 @@
     }
 
     close() {
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect();
+      }
+
       if (this.dialog.open) {
         this.dialog.close();
       }
@@ -593,6 +607,21 @@
         h('div', {className: 'ai-overlay-chip'}, [h('div', {className: 'ai-spinner', 'aria-hidden': 'true'}), this.overlayLabel]),
       ]);
       this.image.append(this.img, this.imageOverlay);
+
+      this.img.addEventListener('load', () => {
+        // Drafts set the size every version is shown at. The final version is
+        // a higher resolution, so it's scaled down to match instead.
+        if (this.img.dataset.key !== 'source' && this.img.dataset.key !== 'compare-after') {
+          this.displaySize = {width: this.img.naturalWidth, height: this.img.naturalHeight};
+        }
+
+        this.fitImage();
+      });
+
+      if (window.ResizeObserver) {
+        this.resizeObserver = new ResizeObserver(() => this.fitImage());
+        this.resizeObserver.observe(this.image);
+      }
 
       this.imageTools = h('div', {className: 'ai-tools'});
       this.imageContainer.append(this.image, this.imageTools);
@@ -896,6 +925,7 @@
       toggle(this.emptyHint, false);
       this.imageContainer.classList.remove('ai-centered');
       toggle(this.img, true);
+      this.img.dataset.key = String(key);
       this.img.src = url;
 
       for (const thumb of this.strip.querySelectorAll('.ai-thumb')) {
@@ -905,6 +935,48 @@
       this.selectedTurnId = key;
       this.updateRevertState();
       this.updatePresetsState();
+    }
+
+    /**
+     * Predicts the size of a draft from the source image's aspect ratio and
+     * the working resolution tier, so the original is shown at the size its
+     * drafts will have. Null when there's no source image to go by.
+     */
+    estimateDraftSize() {
+      const source = this.session.sourceAsset;
+      const pixels = TIER_PIXELS[this.session.workingResolution];
+
+      if (!source || !source.width || !source.height || !pixels) {
+        return null;
+      }
+
+      const ratio = source.width / source.height;
+
+      return {
+        width: Math.round(Math.sqrt(pixels * ratio)),
+        height: Math.round(Math.sqrt(pixels / ratio)),
+      };
+    }
+
+    /**
+     * Shows every version at the same size, the size of a draft scaled down to
+     * fit the image area, so the original, the drafts and the final version
+     * don't jump in size when switching between them. Images with a different
+     * aspect ratio are fitted inside that box.
+     */
+    fitImage() {
+      const size = this.displaySize
+        || (this.img.naturalWidth ? {width: this.img.naturalWidth, height: this.img.naturalHeight} : null);
+      const areaWidth = this.image.clientWidth;
+      const areaHeight = this.image.clientHeight;
+
+      if (!size || !areaWidth || !areaHeight) {
+        return;
+      }
+
+      const scale = Math.min(1, areaWidth / size.width, areaHeight / size.height);
+      this.img.style.width = Math.round(size.width * scale) + 'px';
+      this.img.style.height = Math.round(size.height * scale) + 'px';
     }
 
     updateRevertState() {
