@@ -51,7 +51,7 @@ return [
 ];
 ```
 
-For per-environment values, branch on `app()->environment()`.
+Config files are loaded before Laravel knows the environment, so use `env()` for per-environment values, not `app()->environment()`. For example: `'driver' => env('APP_ENV') === 'production' ? 'gemini' : 'openai'`.
 
 ### Namespace and classes
 

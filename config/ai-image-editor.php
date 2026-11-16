@@ -5,8 +5,9 @@
  * Copy this file to your project's `config/craft/` folder as `ai-image-editor.php`.
  *
  * Craft 6 loads it as plain Laravel config: return a flat array, and use env()
- * for environment variables. Per-environment values can branch on
- * app()->environment().
+ * for environment variables and per-environment values, like
+ * env('APP_ENV') === 'production'. Config files load before Laravel knows the
+ * environment, so app()->environment() can't be used here.
  */
 
 return [
