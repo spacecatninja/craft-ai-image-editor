@@ -86,8 +86,6 @@ class AiImageEditor extends Plugin
 
     public string $schemaVersion = '2.0.0';
 
-    public string $minVersionRequired = '1.2.0';
-
     protected array $commands = [
         PurgeSessionsCommand::class,
         TestConnectionCommand::class,

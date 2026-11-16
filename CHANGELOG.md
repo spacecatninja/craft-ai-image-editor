@@ -1,5 +1,10 @@
 # AI Image Editor Changelog
 
+## Unreleased
+
+### Fixed
+- Fixed the site not loading after updating to version 2 from a version older than 1.2.0. Version 2 can now be updated to from any earlier version.
+
 ## 2.0.0-beta.1 - 2026-11-14
 
 > [!IMPORTANT]
