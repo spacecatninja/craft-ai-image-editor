@@ -32,7 +32,7 @@
     ],
     "require": {
         "php": "^8.5",
-        "craftcms/cms": "^6.0.0-alpha",
+        "craftcms/cms": "^6.0.0-beta.2",
         "guzzlehttp/guzzle": "^7.2"
     },
     "autoload": {

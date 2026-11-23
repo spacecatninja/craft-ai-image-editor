@@ -14,14 +14,14 @@
  * Loaded on every control panel page, with no dependencies. It opens on:
  *
  * - the `ai-image-editor:edit` window event, with the asset ID in the event
- *   detail as `elementIds` (Craft's element actions) or `assetId`;
+ *   detail as `elementIds` (Craft's element actions) or `assetId`. With
+ *   `isEditScreen`, it was opened from the asset's own edit screen, which the
+ *   editor follows after saving;
  * - the `ai-image-editor:generate` window event, with the target folder ID in
- *   the detail as `folderId`, for a generation session;
- * - a `#ai-image-editor:edit:{id}` or `#ai-image-editor:edit-screen:{id}` URL
- *   hash, for the Craft menus that can only link. The `edit-screen` form is used
- *   on the asset's own edit screen, which the editor follows after saving.
- *   Remove this once those menus can dispatch events:
- *   https://github.com/craftcms/cms/issues/20688
+ *   the detail as `folderId`, for a generation session.
+ *
+ * Craft's menus and buttons add `returnFocus` to the detail, which the editor
+ * hands focus back to when it closes.
  *
  * `window.AiImageEditor.open(assetId, settings)` and
  * `window.AiImageEditor.generate(folderId, settings)` open it from code.
@@ -34,7 +34,6 @@
   const EDIT_EVENT = 'ai-image-editor:edit';
   const GENERATE_EVENT = 'ai-image-editor:generate';
   const SAVED_EVENT = 'ai-image-editor:saved';
-  const HASH_PATTERN = /^#ai-image-editor:(edit|edit-screen):(\d+)$/;
 
   /**
    * Roughly how many pixels a draft has at each resolution tier. The tiers are
@@ -180,6 +179,8 @@
       isEditScreen: false,
       folderId: null,
       onSave: () => {},
+      // Returns the element to focus once the editor closes, like the `returnFocus` in Craft's event details.
+      returnFocus: null,
     };
 
     constructor(assetId, settings = {}) {
@@ -566,6 +567,13 @@
       }
 
       this.dialog.remove();
+
+      // The menu item or button that opened the editor may be gone by now, so Craft says where focus goes.
+      const target = typeof this.settings.returnFocus === 'function' ? this.settings.returnFocus() : null;
+
+      if (target && target.isConnected) {
+        target.focus();
+      }
     }
 
     // UI construction
@@ -1166,12 +1174,27 @@
     }
   }
 
+  /**
+   * Whether an event came from inside an element selector modal. There's no
+   * page to refresh behind one: reloading it would reload whatever opened the
+   * modal, like an entry with unsaved changes.
+   */
+  function isInSelectorModal(detail) {
+    return detail.trigger instanceof Element && detail.trigger.closest('craft-element-selector-modal') !== null;
+  }
+
   window.addEventListener(EDIT_EVENT, (ev) => {
     const detail = ev.detail || {};
     const assetId = detail.assetId || (Array.isArray(detail.elementIds) ? detail.elementIds[0] : null);
 
     if (assetId) {
-      open(Number(assetId), {onSave: refreshPage});
+      const isEditScreen = detail.isEditScreen === true;
+
+      open(Number(assetId), {
+        isEditScreen,
+        onSave: isEditScreen || isInSelectorModal(detail) ? () => {} : refreshPage,
+        returnFocus: detail.returnFocus,
+      });
     }
   });
 
@@ -1179,32 +1202,12 @@
     const detail = ev.detail || {};
 
     if (detail.folderId) {
-      generate(Number(detail.folderId), {onSave: refreshPage});
+      generate(Number(detail.folderId), {
+        onSave: isInSelectorModal(detail) ? () => {} : refreshPage,
+        returnFocus: detail.returnFocus,
+      });
     }
   });
-
-  function openFromHash() {
-    const match = window.location.hash.match(HASH_PATTERN);
-
-    if (!match) {
-      return;
-    }
-
-    // Drop the hash, so a reload or a later save doesn't reopen the editor.
-    const url = window.location.href.replace(/#.*$/, '');
-    window.history.replaceState(window.history.state, '', url);
-
-    const isEditScreen = match[1] === 'edit-screen';
-    open(Number(match[2]), {isEditScreen, onSave: isEditScreen ? () => {} : refreshPage});
-  }
-
-  window.addEventListener('hashchange', openFromHash);
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', openFromHash);
-  } else {
-    openFromHash();
-  }
 
   window.AiImageEditor = {open, generate, Editor};
 })();

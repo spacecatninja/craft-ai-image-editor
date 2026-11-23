@@ -10,8 +10,10 @@
 
 namespace SpaceCatNinja\AiImageEditor;
 
+use CraftCms\Cms\Asset\Data\VolumeFolder;
 use CraftCms\Cms\Asset\Elements\Asset;
 use CraftCms\Cms\Asset\Enums\FileKind;
+use CraftCms\Cms\Asset\Events\FolderActionsResolving;
 use CraftCms\Cms\Element\Actions\ClientAction;
 use CraftCms\Cms\Element\Enums\ElementActionContext;
 use CraftCms\Cms\Element\Events\ElementActionMenuDescriptorsResolving;
@@ -65,16 +67,11 @@ class AiImageEditor extends Plugin
     public const EDIT_EVENT = 'ai-image-editor:edit';
 
     /**
-     * @var string The URL hash that opens the editor for an asset, for the
-     * Craft menus that can only link. `{id}` is replaced with the asset ID.
+     * @var string The window event that opens a generation session. Its detail
+     * carries the ID of the folder to save into as `folderId`.
+     * @since 2.0.0
      */
-    private const EDIT_HASH = '#ai-image-editor:edit:{id}';
-
-    /**
-     * @var string The URL hash that opens the editor from the asset's own edit
-     * screen, which the editor then follows after saving.
-     */
-    private const EDIT_SCREEN_HASH = '#ai-image-editor:edit-screen:{id}';
+    public const GENERATE_EVENT = 'ai-image-editor:generate';
 
     /**
      * @var string Cache key that throttles dispatching the stale session purge job.
@@ -144,16 +141,13 @@ class AiImageEditor extends Plugin
 
     /**
      * Registers the control panel entry points for opening the editor: an
-     * element action on asset indexes, an action menu item on assets, and a
-     * button in the asset editor's footer.
+     * element action on asset indexes, an action menu item on assets, a button
+     * in the asset editor's footer, and a **Generate** action for the folder on
+     * screen in asset indexes and asset selection modals.
      *
      * The editor itself is `resources/dist/editor.js`, loaded on every control
-     * panel page, which opens on the `ai-image-editor:edit` window event. The
-     * action menus of the full-page asset editor and of element chips can only
-     * run Craft's own behaviors, not dispatch events, so those link to a URL
-     * hash the editor listens for instead. Switch them to an event behavior,
-     * and drop the hash, once Craft supports one:
-     * https://github.com/craftcms/cms/issues/20688
+     * panel page, which opens on the `ai-image-editor:edit` and
+     * `ai-image-editor:generate` window events that these dispatch.
      */
     private function registerEditorEntryPoints(): void
     {
@@ -189,7 +183,8 @@ class AiImageEditor extends Plugin
             ];
         });
 
-        // The full-page asset editor and element chips only run behaviors, so these link to the editor's URL hash.
+        // The asset editor's action menu, and element chips' menus. On the asset's own edit screen, the editor
+        // follows the saved result.
         Event::listen(static function(ElementActionMenuDescriptorsResolving $event): void {
             if (!self::canEditAsset($event->element)) {
                 return;
@@ -198,10 +193,7 @@ class AiImageEditor extends Plugin
             $event->items[] = [
                 'label' => t('Edit with AI', category: 'ai-image-editor'),
                 'icon' => 'wand-magic-sparkles',
-                'behavior' => [
-                    'type' => 'link',
-                    'href' => self::editHash($event->element, $event->context === ElementActionContext::Editor),
-                ],
+                'behavior' => self::editBehavior($event->element, $event->context === ElementActionContext::Editor),
             ];
         });
 
@@ -214,9 +206,23 @@ class AiImageEditor extends Plugin
             $event->items[] = [
                 'label' => t('Edit with AI', category: 'ai-image-editor'),
                 'icon' => 'wand-magic-sparkles',
-                'behavior' => [
-                    'type' => 'link',
-                    'href' => self::editHash($event->element, true),
+                'behavior' => self::editBehavior($event->element, true),
+            ];
+        });
+
+        // Beside "Upload files" in asset indexes (in its menu) and asset selection modals, like the Craft 5 button.
+        Event::listen(static function(FolderActionsResolving $event): void {
+            if (!self::canGenerateIn($event->folder)) {
+                return;
+            }
+
+            $event->actions[] = [
+                'label' => t('Generate', category: 'ai-image-editor'),
+                'icon' => 'wand-magic-sparkles',
+                'action' => [
+                    'type' => 'event',
+                    'name' => self::GENERATE_EVENT,
+                    'detail' => ['folderId' => $event->folder->id],
                 ],
             ];
         });
@@ -246,9 +252,38 @@ class AiImageEditor extends Plugin
         return Gate::check(self::PERMISSION_EDIT) && Gate::check("saveAssets:{$volume->uid}");
     }
 
-    private static function editHash(Asset $asset, bool $isEditScreen): string
+    /**
+     * Whether the current user may generate images into a folder: with the AI
+     * generate permission, and the ability to save assets in the folder's
+     * volume, which is also what Craft's "Upload files" button needs.
+     */
+    private static function canGenerateIn(VolumeFolder $folder): bool
     {
-        return str_replace('{id}', (string)$asset->id, $isEditScreen ? self::EDIT_SCREEN_HASH : self::EDIT_HASH);
+        if (!Gate::check(self::PERMISSION_GENERATE)) {
+            return false;
+        }
+
+        try {
+            $volume = $folder->getVolume();
+        } catch (Throwable) {
+            return false;
+        }
+
+        return Gate::check("saveAssets:{$volume->uid}");
+    }
+
+    /**
+     * The element editor behavior that opens the editor for an asset.
+     *
+     * @return array{type: string, name: string, detail: array{assetId: int, isEditScreen: bool}}
+     */
+    private static function editBehavior(Asset $asset, bool $isEditScreen): array
+    {
+        return [
+            'type' => 'event',
+            'name' => self::EDIT_EVENT,
+            'detail' => ['assetId' => $asset->id, 'isEditScreen' => $isEditScreen],
+        ];
     }
 
     /**
