@@ -8,7 +8,7 @@ Open any image asset and tell the editor what you want in plain words — *"make
 
 ## Requirements
 
-- Craft CMS 6.0+ (version 1.x supports Craft 5, see [UPGRADE.md](UPGRADE.md) when moving to Craft 6)
+- Craft CMS 6.0.0-beta.2 or later (version 1.x supports Craft 5, see [UPGRADE.md](UPGRADE.md) when moving to Craft 6)
 - PHP 8.5+
 - An API key for at least one supported provider — Google Gemini, OpenAI, Black Forest Labs (FLUX), or xAI (Grok). Bring your own key; requests go directly from your server to the provider.
 
@@ -50,13 +50,9 @@ Open the editor with **Edit with AI**: an action on asset indexes (select one im
 
 ### Generating new images
 
-Besides editing existing assets, the plugin can create images from scratch. A generation session opens the same editor without a source image: describe what you want, iterate in drafts, and accept to save. Generated assets land in the folder that was selected in the index, named after an AI description of the image (e.g. `golden-retriever-on-a-beach.png`), falling back to the first prompt. Since there is no original, only "Save as a new asset" is offered.
+Besides editing existing assets, the plugin can create images from scratch. Use **Generate** in the menu beside **Upload files** on asset indexes, or the **Generate** button beside **Upload files** in asset selection modals. These show for users with the "Generate images with AI" permission, in volumes they can save assets to. Generate opens the same editor without a source image: describe what you want, iterate in drafts, and accept to save. Generated assets land in the folder on screen, named after an AI description of the image (e.g. `golden-retriever-on-a-beach.png`), falling back to the first prompt. Since there is no original, only "Save as a new asset" is offered.
 
-Craft 6 doesn't yet let plugins add buttons to the asset index toolbar or the asset selection modal, so the **Generate** button from the Craft 5 version isn't there ([craftcms/cms#20689](https://github.com/craftcms/cms/issues/20689)). Until it is, open a generation session from your own control panel code, with the ID of the folder to save into:
-
-```js
-window.dispatchEvent(new CustomEvent('ai-image-editor:generate', {detail: {folderId: 1}}));
-```
+On an asset index, the list is refreshed after saving, so the new image shows up. Craft 6 doesn't yet let plugins refresh an asset selection modal's list, so there the new image isn't shown or preselected until the modal is opened again.
 
 ### Reducing content drift
 
@@ -270,7 +266,10 @@ The editor script is loaded on every control panel page. It opens on two window 
 
 ```js
 window.dispatchEvent(new CustomEvent('ai-image-editor:edit', {detail: {assetId: 123}}));
+window.dispatchEvent(new CustomEvent('ai-image-editor:generate', {detail: {folderId: 1}}));
 ```
+
+Craft's own menus and buttons can dispatch them too, with an `event` action (or behavior) named `ai-image-editor:edit` or `ai-image-editor:generate`. When the event detail has the `returnFocus` function Craft adds, the editor hands focus back to what it returns when it closes.
 
 ### Permissions
 

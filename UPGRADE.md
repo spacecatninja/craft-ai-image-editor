@@ -6,7 +6,7 @@ Projects that only configure the plugin through its config file need to move and
 
 ## Requirements
 
-- Craft CMS 6.0.0 or later
+- Craft CMS 6.0.0-beta.2 or later
 - PHP 8.5 or later
 - The plugin doesn't need the Yii 2 adapter (`craftcms/yii2-adapter`).
 
@@ -204,12 +204,12 @@ Craft 6's control panel has no jQuery, Garnish or `Craft.sendActionRequest`, so 
 | `Craft.AiImageEditor.open(assetId, settings)` | `window.AiImageEditor.open(assetId, settings)`, or the `ai-image-editor:edit` window event with `{assetId}` in the detail |
 | `new Craft.AiImageEditor.Editor(null, {folderId})` | `window.AiImageEditor.generate(folderId)`, or the `ai-image-editor:generate` window event with `{folderId}` in the detail |
 | `Craft.AiImageEditor.Editor` (a `Garnish.Modal`) | `window.AiImageEditor.Editor` (a plain class, rendering a native `<dialog>`) |
-| `Craft.AiImageEditor.attachGenerateButton()`, `attachEditScreenButton()` | Removed |
+| `Craft.AiImageEditor.attachGenerateButton()`, `attachEditScreenButton()` | Removed. The plugin adds its buttons through Craft 6's events instead. |
 | `settings.onSave(data)` | Unchanged, and the `ai-image-editor:saved` window event is dispatched as well |
 
 The **Edit with AI** element action is a Craft 6 client action (`ai-image-editor:edit`). On the asset's edit screen, **Edit with AI** is in the action menu and the editor's footer, instead of next to the preview's **Edit Image** button.
 
-Craft 6 doesn't yet let plugins add buttons to the asset index toolbar or the asset selection modal, so the **Generate** button isn't available ([craftcms/cms#20689](https://github.com/craftcms/cms/issues/20689)). Open generation sessions from your own code until it is (see the README).
+**Generate** is in the menu beside **Upload files** on asset indexes, instead of a button in the toolbar. In asset selection modals, it's still a button beside **Upload files**, but the modal doesn't show or preselect the generated image until it's opened again, since Craft 6 doesn't yet let plugins refresh a modal's list.
 
 ### Queue job
 

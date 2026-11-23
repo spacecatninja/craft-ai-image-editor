@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+- Added **Generate** back to asset indexes, in the menu beside **Upload files**, and to asset selection modals, beside **Upload files** ([craftcms/cms#20689](https://github.com/craftcms/cms/issues/20689)). In asset selection modals, the generated image isn't shown or preselected until the modal is opened again.
+- Added `AiImageEditor::GENERATE_EVENT`.
+
+### Changed
+- AI Image Editor now requires Craft CMS 6.0.0-beta.2 or later.
+- **Edit with AI** in the asset editor's action menu and footer, and in element chips' action menus, now dispatches the `ai-image-editor:edit` window event, instead of linking to a `#ai-image-editor:edit:{id}` URL hash ([craftcms/cms#20688](https://github.com/craftcms/cms/issues/20688)). The editor no longer opens from that URL hash.
+- The editor now hands focus back to the menu or button it was opened from when it closes.
+
 ### Fixed
 - Fixed the site not loading after updating to version 2 from a version older than 1.2.0. Version 2 can now be updated to from any earlier version.
 
