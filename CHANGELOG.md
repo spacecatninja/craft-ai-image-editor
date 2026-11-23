@@ -1,6 +1,6 @@
 # AI Image Editor Changelog
 
-## Unreleased
+## 2.0.0-beta.2 - 2026-11-23
 
 ### Added
 - Added **Generate** back to asset indexes, in the menu beside **Upload files**, and to asset selection modals, beside **Upload files** ([craftcms/cms#20689](https://github.com/craftcms/cms/issues/20689)). In asset selection modals, the generated image isn't shown or preselected until the modal is opened again.
